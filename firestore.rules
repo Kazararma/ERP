@@ -1,0 +1,128 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isActive() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == "active";
+    }
+    function isSuperAdmin() {
+      return isActive() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "superadmin";
+    }
+    function isAdmin() {
+      return isActive() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "superadmin" || 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin");
+    }
+
+    // Users collection: SuperAdmin can write all; users can read their own doc
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow write: if isSuperAdmin();
+      // Allow creation of own doc on first sign-in (for pending status)
+      allow create: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // All ERP data: only active users can read/write
+    match /dealLogs/{logId} {
+      allow read, write: if isActive();
+    }
+    match /riceTypes/{riceTypeId} {
+      allow read: if isActive();
+      allow write: if isSuperAdmin();
+    }
+    match /supplierLedgerEntries/{entryId} {
+      allow read: if isActive();
+      allow create: if isActive();
+      allow update: if isAdmin();
+      allow delete: if isAdmin(); // Admins can delete entries when removing a deal
+    }
+    match /suppliers/{id} {
+      allow read, write: if isActive();
+    }
+    match /customers/{id} {
+      allow read, write: if isActive();
+    }
+    match /deals/{dealId} {
+      allow read, write: if isActive();
+      match /stagingBatches/{batchId} {
+        allow read, write: if isActive();
+      }
+      match /bagDivisions/{divisionId} {
+        allow read, write: if isActive();
+      }
+    }
+    
+    // Required for collectionGroup('stagingBatches') queries
+    match /{path=**}/stagingBatches/{batchId} {
+      allow read, write: if isActive();
+    }
+    match /orders/{orderId} {
+      allow read, write: if isActive();
+      match /allocations/{allocationId} {
+        allow read, write: if isActive();
+      }
+    }
+    match /inventory/{id} {
+      allow read, write: if isActive();
+    }
+    match /inventoryExcess/{id} {
+      allow read, write: if isActive();
+    }
+    match /employees/{employeeId} {
+      allow read, write: if isActive();
+      match /wagePayments/{paymentId} {
+        allow read, write: if isActive();
+      }
+    }
+
+    // Banks — Admin and SuperAdmin only
+    match /banks/{bankId} {
+      allow read: if isSignedIn() && isActive();
+      allow create, update: if isSignedIn() && isAdmin();
+      allow delete: if isSignedIn() && isSuperAdmin();
+
+      match /transactions/{txId} {
+        allow read: if isSignedIn() && isActive();
+        allow create: if isSignedIn() && isAdmin();
+        allow update: if false; // Transactions are immutable
+        allow delete: if isSuperAdmin();
+      }
+    }
+
+    // Salary Transactions — immutable once written
+    match /salaryTransactions/{txId} {
+      allow read: if isSignedIn() && isActive();
+      allow create: if isSignedIn() && isAdmin();
+      allow update: if false; // Salary records are immutable
+      allow delete: if isSuperAdmin();
+    }
+
+    match /ledgerProfiles/{profileId} {
+      allow read: if isSignedIn() && isActive();
+      allow create, update: if isSignedIn() && isAdmin();
+      allow delete: if false; // Profiles are never deleted
+
+      match /entries/{entryId} {
+        allow read: if isSignedIn() && isActive();
+        allow create: if isSignedIn() && isAdmin();
+        // Admins can update any field on any entry type, including debit/credit amounts.
+        // Debit/credit edits MUST go through the updateLedgerEntryAmount transaction
+        // (enforced in the service layer) to keep parent profile totals in sync.
+        allow update: if isSignedIn() && isAdmin();
+        // Admins can delete manual entries directly; system entries are deleted only as part of deal deletion
+        allow delete: if isSignedIn() && isAdmin();
+      }
+    }
+
+    match /balanceSheetManualEntries/{entryId} {
+      allow read: if isSignedIn() && isActive();
+      allow create, update, delete: if isSignedIn() && isAdmin();
+    }
+  }
+}
