@@ -152,21 +152,22 @@ export function LedgerProfilePdf({
           // Convert sub-particulars to the active display unit.
           // convertSubParticulars handles both unit conversion AND 2-dp price formatting
           // in one pass. Non-convertible rows are returned verbatim.
-          const displayedSub = hasConvertiblePattern(entry.subParticulars)
+          let displayedSub = hasConvertiblePattern(entry.subParticulars)
             ? convertSubParticulars(entry.subParticulars ?? "", activeUnit)
             : (entry.subParticulars ?? "");
+
+          // Sanitize unicode characters that Helvetica doesn't support well
+          displayedSub = displayedSub.replace(/₹/g, "Rs.").replace(/−/g, "-");
+          const safeParticulars = entry.particulars.replace(/₹/g, "Rs.").replace(/−/g, "-");
 
           return (
             <View key={entry.id} style={S.tableRow} wrap={false}>
               <Text style={S.colDate}>{format(entry.date.toDate(), "d-MMM-yy")}</Text>
               
               <View style={S.colParticulars}>
-                <Text style={S.partTitle}>{prefix} {entry.particulars}</Text>
+                <Text style={S.partTitle}>{prefix} {safeParticulars}</Text>
                 {(options?.showSubParticulars ?? true) && displayedSub
                   ? <Text style={S.partSub}>{displayedSub}</Text>
-                  : null}
-                {(options?.showRefLabel ?? true) && entry.refLabel
-                  ? <Text style={S.partSub}>{entry.refLabel}</Text>
                   : null}
               </View>
               

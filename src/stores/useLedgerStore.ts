@@ -4,6 +4,9 @@ import { LedgerProfile } from "@/types/ledger-profile";
 import { customerService } from "@/services/customerService";
 import { supplierService } from "@/services/supplierService";
 import { getLedgerProfilesByType } from "@/services/ledgerProfileService";
+import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { LedgerEntry } from "@/types/ledger-profile";
 
 interface LedgerStore {
   customers: Customer[];
@@ -21,6 +24,11 @@ interface LedgerStore {
     entityId: string,
     patch: Partial<Pick<LedgerProfile, "totalDebit" | "totalCredit" | "closingBalance">>
   ) => void;
+
+  activeProfileEntries: LedgerEntry[];
+  activeProfileUnsubscribe: (() => void) | null;
+  subscribeToProfileEntries: (profileId: string) => void;
+  unsubscribeFromProfileEntries: () => void;
 }
 
 export const useLedgerStore = create<LedgerStore>((set, get) => ({
@@ -30,6 +38,8 @@ export const useLedgerStore = create<LedgerStore>((set, get) => ({
   supplierProfiles: {},
   isLoadingCustomers: false,
   isLoadingSuppliers: false,
+  activeProfileEntries: [],
+  activeProfileUnsubscribe: null,
 
   fetchCustomersData: async (force = false) => {
     // Only fetch if empty or force is true
@@ -86,5 +96,27 @@ export const useLedgerStore = create<LedgerStore>((set, get) => ({
         };
       });
     }
+  },
+
+  subscribeToProfileEntries: (profileId: string) => {
+    get().unsubscribeFromProfileEntries();
+
+    const q = query(
+      collection(db, "ledgerProfiles", profileId, "entries"),
+      orderBy("date", "asc"),
+      orderBy("createdAt", "asc")
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+      set({ activeProfileEntries: snap.docs.map((d) => d.data() as LedgerEntry) });
+    });
+
+    set({ activeProfileUnsubscribe: unsub });
+  },
+
+  unsubscribeFromProfileEntries: () => {
+    const unsub = get().activeProfileUnsubscribe;
+    if (unsub) unsub();
+    set({ activeProfileUnsubscribe: null, activeProfileEntries: [] });
   },
 }));

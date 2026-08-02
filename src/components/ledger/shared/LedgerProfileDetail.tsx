@@ -48,66 +48,58 @@ export function LedgerProfileDetail({ profile }: Props) {
   };
   const [pdfOptions, setPdfOptions] = useState<LedgerPdfOptions>(DEFAULT_PDF_OPTIONS);
 
-  // ── All raw (unfiltered) entries from Firestore ─────────────────────────────
-  const [rawEntries, setRawEntries] = useState<any[]>([]);
+  const { activeProfileEntries, subscribeToProfileEntries } = useLedgerStore();
 
-  // ── Single persistent listener — ONLY depends on profile.id ────────────────
-  // Storing ALL entries as rawEntries; date filtering is a separate derived step.
-  // This prevents the listener from tearing down when dateFrom/dateTo change,
-  // which was the root cause of new entries not appearing without a refresh.
   useEffect(() => {
     setLoading(true);
     hasInitializedDates.current = false;
+    subscribeToProfileEntries(profile.id);
+    
+    // We rely on the store's activeProfileEntries updating.
+    // The date initialization will happen in the next effect when activeProfileEntries populates.
+  }, [profile.id, subscribeToProfileEntries]);
 
-    const q = query(
-      collection(db, `ledgerProfiles/${profile.id}/entries`),
-      orderBy("date", "asc")
-    );
-
-    const unsubscribe = onSnapshot(q, (snap) => {
-      let data = snap.docs.map((d) => d.data() as any);
-
-      // Same-day entries sorted by creation time
-      data.sort((a: any, b: any) => {
-        const dateA = a.date.toDate(); dateA.setHours(0, 0, 0, 0);
-        const dateB = b.date.toDate(); dateB.setHours(0, 0, 0, 0);
-        const dDiff = dateA.getTime() - dateB.getTime();
-        if (dDiff !== 0) return dDiff;
-        return (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0);
-      });
-
-      // Filter out internal bag-split entries
-      data = data.filter(
-        (e: any) => e.entryType !== "bags_divided" && e.entryType !== "bags_divided_reverted"
-      );
-
-      // Auto-populate date filters on very first load only
-      if (!hasInitializedDates.current && data.length > 0) {
-        hasInitializedDates.current = true;
-        const sorted = [...data].sort((a: any, b: any) => a.date.toMillis() - b.date.toMillis());
-        setDateFrom(format(sorted[0].date.toDate(), "yyyy-MM-dd"));
-        setDateTo(format(sorted[sorted.length - 1].date.toDate(), "yyyy-MM-dd"));
-      }
-
-      setRawEntries(data); // store ALL; date filter applied in the effect below
+  // ── Apply date filter reactively whenever activeProfileEntries or date range changes ──
+  useEffect(() => {
+    if (!activeProfileEntries || activeProfileEntries.length === 0) {
+      setEntries([]);
       setLoading(false);
-    }, (err) => {
-      console.error("Ledger entries listener error:", err);
-      setLoading(false);
+      return;
+    }
+
+    let data = [...activeProfileEntries];
+
+    // Same-day entries sorted by creation time
+    data.sort((a: any, b: any) => {
+      const dateA = a.date.toDate(); dateA.setHours(0, 0, 0, 0);
+      const dateB = b.date.toDate(); dateB.setHours(0, 0, 0, 0);
+      const dDiff = dateA.getTime() - dateB.getTime();
+      if (dDiff !== 0) return dDiff;
+      return (a.createdAt?.toMillis() || 0) - (b.createdAt?.toMillis() || 0);
     });
 
-    return () => unsubscribe();
-  }, [profile.id]); // ← only profile.id — listener never restarts on date changes
+    // Filter out internal bag-split entries
+    data = data.filter(
+      (e: any) => e.entryType !== "bags_divided" && e.entryType !== "bags_divided_reverted"
+    );
 
-  // ── Apply date filter reactively whenever rawEntries or date range changes ──
-  useEffect(() => {
+    // Auto-populate date filters on very first load only
+    if (!hasInitializedDates.current && data.length > 0) {
+      hasInitializedDates.current = true;
+      const sorted = [...data].sort((a: any, b: any) => a.date.toMillis() - b.date.toMillis());
+      setDateFrom(format(sorted[0].date.toDate(), "yyyy-MM-dd"));
+      setDateTo(format(sorted[sorted.length - 1].date.toDate(), "yyyy-MM-dd"));
+    }
+
     const from = dateFrom ? new Date(dateFrom + "T00:00:00") : undefined;
     const to   = dateTo   ? new Date(dateTo   + "T23:59:59") : undefined;
-    let filtered = rawEntries;
+    let filtered = data;
     if (from) filtered = filtered.filter((e: any) => e.date.toDate() >= from);
     if (to)   filtered = filtered.filter((e: any) => e.date.toDate() <= to);
+    
     setEntries(filtered);
-  }, [rawEntries, dateFrom, dateTo]);
+    setLoading(false);
+  }, [activeProfileEntries, dateFrom, dateTo]);
 
   const handleManualSubmit = async (form: any) => {
     await addManualLedgerEntry(
@@ -324,6 +316,7 @@ export function LedgerProfileDetail({ profile }: Props) {
         onClose={() => setShowForm(false)}
         onSubmit={handleManualSubmit}
         nextVchNo={nextVchNo}
+        entityType={profile?.entityType}
       />
 
       {/* PDF Column Options Dialog */}

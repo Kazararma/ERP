@@ -17,25 +17,43 @@ export const dealService = {
     return querySnapshot.docs.map(doc => doc.data() as Deal);
   },
 
-  async createDeal(data: Omit<Deal, "dealId" | "createdAt" | "updatedAt" | "deliveryConfirmed" | "deliveryDate" | "status" | "remainingAmountKg" | "totalCost">): Promise<Deal> {
+  async createDeal(data: Omit<Deal, "dealId" | "createdAt" | "updatedAt" | "deliveryConfirmed" | "deliveryDate" | "status" | "remainingAmountKg" | "totalCost" | "grossCost" | "discount"> & { discountEnabled?: boolean, discountKg?: number, discountRatePerKg?: number }): Promise<Deal> {
     // 1. No product code validation required anymore
 
     const docRef = doc(collection(db, DEALS_COLLECTION));
     const dealId = docRef.id;
     const now = serverTimestamp() as Timestamp;
-    const totalCost = data.totalAmountKg * data.pricePerKg;
+    const grossAmountKg = data.totalAmountKg;
+    const netAmountKg = grossAmountKg - (data.weightDeductionKg || 0);
+    const grossCost = netAmountKg * data.pricePerKg;
+    const hasDiscount = data.discountEnabled && (data.discountKg || 0) > 0;
+    const discountValue = hasDiscount ? (data.discountKg || 0) * (data.discountRatePerKg || 0) : 0;
+    const netTotalCost = grossCost - discountValue;
+    const netStockKg = netAmountKg;
 
     const newDeal: Deal = {
       ...data,
       dealId,
-      remainingAmountKg: data.totalAmountKg,
-      totalCost,
+      grossAmountKg,
+      weightDeductionKg: data.weightDeductionKg || 0,
+      totalAmountKg: netStockKg,
+      remainingAmountKg: netStockKg,
+      totalCost: netTotalCost,
+      grossCost: grossCost,
+      discount: hasDiscount
+        ? { discountKg: data.discountKg!, discountRatePerKg: data.discountRatePerKg!, discountValue }
+        : null,
       deliveryConfirmed: false,
       deliveryDate: null,
       status: "pending_delivery",
       createdAt: now,
       updatedAt: now,
     };
+    
+    // Remove transient fields before saving
+    delete (newDeal as any).discountEnabled;
+    delete (newDeal as any).discountKg;
+    delete (newDeal as any).discountRatePerKg;
 
     const batch = writeBatch(db);
 
@@ -50,10 +68,10 @@ export const dealService = {
       supplierId: data.supplierId,
       supplierName: data.supplierName,
       product: data.product,
-      totalBoughtKg: data.totalAmountKg,
+      totalBoughtKg: netStockKg,
       totalDividedKg: 0,
       totalSoldKg: 0,
-      remainingRawKg: data.totalAmountKg,
+      remainingRawKg: netStockKg,
       remainingPackedKg: 0,
       divisionBreakdown: [],
       lastUpdated: now,
@@ -61,9 +79,8 @@ export const dealService = {
     };
     batch.set(inventoryRef, newInventory);
 
-    // 4. Write Supplier Ledger Entry
     const ledgerRef = doc(collection(db, "supplierLedgerEntries"));
-    const ledgerEntry: Partial<SupplierLedgerEntry> = {
+    const ledgerEntry: Partial<SupplierLedgerEntry> & { discountKg?: number, discountValue?: number } = {
       entryId: ledgerRef.id,
       supplierId: newDeal.supplierId,
       supplierName: newDeal.supplierName,
@@ -71,9 +88,11 @@ export const dealService = {
       eventType: "purchase_created",
       eventDate: now,
       product: newDeal.product,
-      amountKg: newDeal.totalAmountKg,
+      amountKg: netStockKg,
       pricePerKg: newDeal.pricePerKg,
-      totalValue: newDeal.totalCost,
+      totalValue: netTotalCost,
+      discountKg: hasDiscount ? data.discountKg : 0,
+      discountValue: discountValue,
       createdAt: now,
       createdBy: newDeal.createdBy,
     };
@@ -116,8 +135,12 @@ export const dealService = {
         entityId: currentDeal.supplierId,
         entityType: "supplier",
         date: currentDeal.purchaseDate || serverTimestamp(),
-        particulars: `${currentDeal.product?.riceTypeName || "Rice"} Purchase`,
-        subParticulars: `${currentDeal.totalAmountKg} kg @ ₹${currentDeal.pricePerKg}/kg`,
+        particulars: currentDeal.discount 
+          ? `Purchase — ${currentDeal.product?.riceTypeName || "Rice"} (Net of Discount)${currentDeal.notes ? ` - ${currentDeal.notes}` : ""}`
+          : `Purchase — ${currentDeal.product?.riceTypeName || "Rice"}${currentDeal.notes ? ` - ${currentDeal.notes}` : ""}`,
+        subParticulars: currentDeal.discount
+          ? `${currentDeal.totalAmountKg} kg @ ₹${currentDeal.pricePerKg}/kg${(currentDeal.weightDeductionKg || 0) > 0 ? ` | Ded: ${currentDeal.weightDeductionKg} kg` : ""} | Discount: ${currentDeal.discount.discountKg} kg @ ₹${currentDeal.discount.discountRatePerKg}/kg (-₹${currentDeal.discount.discountValue.toFixed(2)})`
+          : `${currentDeal.totalAmountKg} kg @ ₹${currentDeal.pricePerKg}/kg${(currentDeal.weightDeductionKg || 0) > 0 ? ` | Ded: ${currentDeal.weightDeductionKg} kg` : ""}`,
         refLabel: `Code: ${currentDeal.product.productCode}`,
         vchType: "Purchase",
         vchNo: Math.floor(Math.random() * 1000000) || 1,

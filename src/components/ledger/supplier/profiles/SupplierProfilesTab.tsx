@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Supplier } from "@/types";
 import { supplierService } from "@/services/supplierService";
 import { LedgerProfileDetail } from "../../shared/LedgerProfileDetail";
@@ -7,6 +7,8 @@ import { LedgerProfile } from "@/types/ledger-profile";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
 import { useLedgerStore } from "@/stores/useLedgerStore";
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 
 export function SupplierProfilesTab() {
   const { suppliers, supplierProfiles: profiles, isLoadingSuppliers, fetchSuppliersData } = useLedgerStore();
@@ -15,6 +17,14 @@ export function SupplierProfilesTab() {
   useEffect(() => {
     fetchSuppliersData();
   }, [fetchSuppliersData]);
+
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredSuppliers = useMemo(() => {
+    if (!searchQuery.trim()) return suppliers;
+    const q = searchQuery.trim().toLowerCase();
+    return suppliers.filter((s) => s.name.toLowerCase().includes(q));
+  }, [suppliers, searchQuery]);
 
   if (selectedProfile) {
     return (
@@ -32,6 +42,17 @@ export function SupplierProfilesTab() {
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm border mt-4">
       <h2 className="text-xl font-bold mb-6 text-slate-800">Supplier Ledger Profiles</h2>
+      
+      <div className="relative max-w-sm mb-4">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search suppliers by name..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-8"
+        />
+      </div>
+
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full text-left text-sm text-slate-600">
           <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
@@ -41,7 +62,7 @@ export function SupplierProfilesTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {suppliers.map(s => {
+            {filteredSuppliers.map(s => {
               const profile = profiles[s.supplierId];
               const closing = profile ? Math.abs(profile.closingBalance) : 0;
               const isCredit = profile ? profile.closingBalance < 0 : false;

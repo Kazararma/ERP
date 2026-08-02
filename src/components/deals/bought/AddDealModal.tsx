@@ -21,10 +21,37 @@ const schema = z.object({
   productCode: z.string().min(1, "Product code is required"),
   productName: z.string().min(2, "Product name is required"),
   riceTypeId: z.string().min(1, "Please select a rice type"),
-  totalAmountKg: z.coerce.number().min(1, "Must be at least 1 kg"),
-  pricePerKg: z.coerce.number().min(0.01, "Price must be positive"),
+  totalAmountKg: z.coerce.number().min(0.01, "Amount must be > 0"),
+  weightDeductionKg: z.coerce.number().min(0).optional(),
+  pricePerKg: z.coerce.number().min(0.01, "Price must be > 0"),
   purchaseDate: z.string().min(1, "Purchase date is required"),
-  notes: z.string().optional()
+  notes: z.string().optional(),
+  discountEnabled: z.boolean().default(false),
+  discountKg: z.coerce.number().min(0).optional(),
+  discountRatePerKg: z.coerce.number().min(0).optional()
+}).superRefine((data, ctx) => {
+  if (data.discountEnabled) {
+    if (!data.discountKg || data.discountKg <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Discount quantity must be > 0",
+        path: ["discountKg"]
+      });
+    } else if (data.discountKg >= (data.totalAmountKg - (data.weightDeductionKg || 0))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Discount kg must be less than net weight",
+        path: ["discountKg"]
+      });
+    }
+    if (!data.discountRatePerKg || data.discountRatePerKg <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Discount rate must be > 0",
+        path: ["discountRatePerKg"]
+      });
+    }
+  }
 });
 
 export function AddDealModal({ onSuccess }: { onSuccess: () => void }) {
@@ -45,11 +72,28 @@ export function AddDealModal({ onSuccess }: { onSuccess: () => void }) {
       productName: "",
       riceTypeId: "",
       totalAmountKg: 0,
+      weightDeductionKg: 0,
       pricePerKg: 0,
       purchaseDate: new Date().toISOString().split('T')[0],
-      notes: ""
+      notes: "",
+      discountEnabled: false,
+      discountKg: 0,
+      discountRatePerKg: 0
     }
   });
+
+  const totalAmountKg = watch("totalAmountKg") || 0;
+  const weightDeductionKg = watch("weightDeductionKg") || 0;
+  const netAmountKg = totalAmountKg - weightDeductionKg;
+  const pricePerKg = watch("pricePerKg") || 0;
+  const discountEnabled = watch("discountEnabled");
+  const discountKg = watch("discountKg") || 0;
+  const discountRatePerKg = watch("discountRatePerKg") || 0;
+
+  const grossCost = netAmountKg * pricePerKg;
+  const discountValue = discountEnabled ? discountKg * discountRatePerKg : 0;
+  const netTotalCost = grossCost - discountValue;
+  const netStockKg = netAmountKg;
 
   const selectedSupplierId = watch("supplierId");
   const selectedRiceTypeId = watch("riceTypeId");
@@ -87,11 +131,15 @@ export function AddDealModal({ onSuccess }: { onSuccess: () => void }) {
           riceTypeName: riceType.displayName
         },
         totalAmountKg: data.totalAmountKg,
+        weightDeductionKg: data.weightDeductionKg || 0,
         pricePerKg: data.pricePerKg,
         purchaseDate: new Date(data.purchaseDate) as any,
         notes: data.notes,
-        createdBy: user?.uid || "unknown"
-      });
+        createdBy: user?.uid || "unknown",
+        discountEnabled: data.discountEnabled,
+        discountKg: data.discountKg,
+        discountRatePerKg: data.discountRatePerKg
+      } as any);
       setOpen(false);
       onSuccess();
     } catch (err: any) {
@@ -214,11 +262,16 @@ export function AddDealModal({ onSuccess }: { onSuccess: () => void }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label>Total Amount (kg)</Label>
               <Input type="number" step="any" {...register("totalAmountKg")} className={errors.totalAmountKg ? "border-red-500" : ""} />
               {errors.totalAmountKg && <p className="text-red-500 text-xs">{errors.totalAmountKg.message}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label>Deduction (kg)</Label>
+              <Input type="number" step="any" {...register("weightDeductionKg")} className={errors.weightDeductionKg ? "border-red-500" : ""} />
+              {errors.weightDeductionKg && <p className="text-red-500 text-xs">{errors.weightDeductionKg.message}</p>}
             </div>
             <div className="space-y-2">
               <Label>Price per kg (₹)</Label>
@@ -231,9 +284,9 @@ export function AddDealModal({ onSuccess }: { onSuccess: () => void }) {
                 type="number" 
                 step="any"
                 placeholder="0"
-                value={totalFocused ? localTotal : ((watch("totalAmountKg") || 0) * (watch("pricePerKg") || 0) || "")}
+                value={totalFocused ? localTotal : ((watch("totalAmountKg") || 0) - (watch("weightDeductionKg") || 0)) * (watch("pricePerKg") || 0) || ""}
                 onFocus={() => {
-                  const currentTotal = (watch("totalAmountKg") || 0) * (watch("pricePerKg") || 0);
+                  const currentTotal = ((watch("totalAmountKg") || 0) - (watch("weightDeductionKg") || 0)) * (watch("pricePerKg") || 0);
                   setLocalTotal(currentTotal ? currentTotal.toString() : "");
                   setTotalFocused(true);
                 }}
@@ -241,12 +294,55 @@ export function AddDealModal({ onSuccess }: { onSuccess: () => void }) {
                 onChange={(e) => {
                   setLocalTotal(e.target.value);
                   const total = parseFloat(e.target.value) || 0;
-                  const kg = watch("totalAmountKg");
+                  const kg = (watch("totalAmountKg") || 0) - (watch("weightDeductionKg") || 0);
                   if (kg > 0) {
                     setValue("pricePerKg", Number(total / kg));
                   }
                 }}
               />
+            </div>
+          </div>
+
+          <div className="border border-slate-200 rounded-md p-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <input type="checkbox" id="discountEnabled" {...register("discountEnabled")} className="w-4 h-4" />
+              <Label htmlFor="discountEnabled" className="font-bold">Apply Discount</Label>
+            </div>
+            
+            {discountEnabled && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Discount Quantity (kg)</Label>
+                  <Input type="number" step="any" {...register("discountKg")} className={errors.discountKg ? "border-red-500" : ""} />
+                  {errors.discountKg && <p className="text-red-500 text-xs">{errors.discountKg.message}</p>}
+                </div>
+                <div className="space-y-2">
+                  <Label>Discount Rate (₹/kg)</Label>
+                  <Input type="number" step="any" {...register("discountRatePerKg")} className={errors.discountRatePerKg ? "border-red-500" : ""} />
+                  {errors.discountRatePerKg && <p className="text-red-500 text-xs">{errors.discountRatePerKg.message}</p>}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-slate-50 p-4 rounded-lg mt-4 text-sm border border-slate-100">
+              <div className="flex justify-between mb-1">
+                <span className="text-slate-500">Gross Cost:</span>
+                <span className="font-medium text-slate-800">₹{grossCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              {discountEnabled && (
+                <div className="flex justify-between mb-1">
+                  <span className="text-slate-500">Discount:</span>
+                  <span className="font-medium text-rose-600">− ₹{discountValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              )}
+              <div className="flex justify-between mb-1 border-t border-slate-200 pt-2 mt-2">
+                <span className="text-slate-800 font-bold">Net Total Cost:</span>
+                <span className="font-black text-indigo-600 text-lg">₹{netTotalCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-800 font-bold">Stock Received:</span>
+                <span className="font-black text-emerald-600 text-lg">{netStockKg.toLocaleString()} kg</span>
+              </div>
             </div>
           </div>
 

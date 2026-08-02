@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Customer } from "@/types";
 import { customerService } from "@/services/customerService";
 import { LedgerProfileDetail } from "../../shared/LedgerProfileDetail";
@@ -7,6 +7,8 @@ import { LedgerProfile } from "@/types/ledger-profile";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
 import { useLedgerStore } from "@/stores/useLedgerStore";
+import { Input } from "@/components/ui/input";
+import { Search } from "lucide-react";
 
 export function CustomerProfilesTab() {
   const { customers, customerProfiles: profiles, isLoadingCustomers, fetchCustomersData } = useLedgerStore();
@@ -15,6 +17,14 @@ export function CustomerProfilesTab() {
   useEffect(() => {
     fetchCustomersData();
   }, [fetchCustomersData]);
+
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredCustomers = useMemo(() => {
+    if (!searchQuery.trim()) return customers;
+    const q = searchQuery.trim().toLowerCase();
+    return customers.filter((c) => c.name.toLowerCase().includes(q));
+  }, [customers, searchQuery]);
 
   if (selectedProfile) {
     return (
@@ -32,6 +42,17 @@ export function CustomerProfilesTab() {
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm border mt-4">
       <h2 className="text-xl font-bold mb-6 text-slate-800">Customer Ledger Profiles</h2>
+      
+      <div className="relative max-w-sm mb-4">
+        <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search customers by name..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="pl-8"
+        />
+      </div>
+
       <div className="overflow-x-auto rounded-lg border border-slate-200">
         <table className="w-full text-left text-sm text-slate-600">
           <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-200">
@@ -41,7 +62,7 @@ export function CustomerProfilesTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {customers.map(c => {
+            {filteredCustomers.map(c => {
               const profile = profiles[c.customerId];
               const closing = profile ? Math.abs(profile.closingBalance) : 0;
               const isCredit = profile ? profile.closingBalance < 0 : false;

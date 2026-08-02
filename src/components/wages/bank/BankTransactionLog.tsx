@@ -9,6 +9,7 @@ import { format } from "date-fns";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 
 export function BankTransactionLog({ bankId }: { bankId: string }) {
   const { fetchBankTransactions } = useBankStore();
@@ -99,6 +100,7 @@ export function BankTransactionLog({ bankId }: { bankId: string }) {
               {tx.type}
             </span>
             <span className="font-semibold text-slate-700">{format(dateObj, 'dd MMM yyyy, HH:mm')}</span>
+            {tx.relatedLedgerEntryId && <Badge variant="outline" className="text-[10px] h-5 py-0 px-1">Ledger Entry</Badge>}
           </div>
           <div className="text-xs text-slate-500 mt-1">{tx.note}</div>
           {tx.payeeEmployeeName && (

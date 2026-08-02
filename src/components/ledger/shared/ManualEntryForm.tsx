@@ -13,17 +13,20 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { useBankStore } from "@/stores/bankStore";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSubmit: (data: ManualLedgerEntryForm) => Promise<void>;
   nextVchNo: number;
+  entityType?: "supplier" | "customer";
 }
 
 const VCH_TYPES = ["Purchase", "Payment", "Receipt", "Sale", "Journal", "Manual"] as const;
 
-export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo }: Props) {
+export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo, entityType = "supplier" }: Props) {
   const {
     register,
     handleSubmit,
@@ -37,8 +40,18 @@ export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo }: Props) {
       vchNo: nextVchNo,
       vchType: "Manual",
       entryKind: "debit",
+      bankId: null,
+      recordFundMovement: false,
+      bankMovementDirection: undefined,
     },
   });
+
+  const { banks, subscribeBanks } = useBankStore();
+
+  useEffect(() => {
+    const unsub = subscribeBanks();
+    return () => unsub();
+  }, [subscribeBanks]);
 
   useEffect(() => {
     if (open) {
@@ -46,6 +59,9 @@ export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo }: Props) {
         vchNo: nextVchNo,
         vchType: "Manual",
         entryKind: "debit",
+        bankId: null,
+        recordFundMovement: false,
+        bankMovementDirection: undefined,
       });
     }
   }, [open, nextVchNo, reset]);
@@ -67,6 +83,40 @@ export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo }: Props) {
       setValue("amount", calculated, { shouldValidate: true, shouldDirty: true });
     }
   }, [watchQty, watchRate, setValue]);
+
+  const watchEntryKind = watch("entryKind");
+  const watchBankId = watch("bankId");
+  const watchRecordFundMovement = watch("recordFundMovement");
+
+  // Determine intelligent default for bank direction based on entry kind and entity type
+  useEffect(() => {
+    if (watchBankId && watchEntryKind) {
+      let defaultDirection: "credit" | "debit" = "debit"; // fallback
+      let shouldRecord = false;
+      
+      if (entityType === "supplier") {
+        if (watchEntryKind === "credit") {
+          defaultDirection = "debit"; // Payment made -> money out (bank debit)
+          shouldRecord = true;
+        } else {
+          defaultDirection = "credit"; // Increase owed -> no bank movement by default, but if they toggle it, it's a bank credit
+          shouldRecord = false;
+        }
+      } else {
+        if (watchEntryKind === "debit") {
+          defaultDirection = "credit"; // Payment received -> money in (bank credit)
+          shouldRecord = true;
+        } else {
+          defaultDirection = "debit"; // Refund/Adjustment -> money out (bank debit)
+          shouldRecord = true; // or false, let's default true for refunds
+        }
+      }
+      
+      // Update form values if not already user-modified
+      setValue("bankMovementDirection", defaultDirection);
+      setValue("recordFundMovement", shouldRecord);
+    }
+  }, [watchEntryKind, watchBankId, entityType, setValue]);
 
   const handleFormSubmit = async (data: ManualLedgerEntryForm) => {
     await onSubmit(data);
@@ -128,7 +178,7 @@ export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo }: Props) {
                     key={kind}
                     type="button"
                     onClick={() => setValue("entryKind", kind)}
-                    className={`flex-1 py-2.5 rounded-md text-sm font-bold transition-all shadow-sm ${watch("entryKind") === kind
+                    className={`flex-1 py-2.5 rounded-md text-sm font-bold transition-all shadow-sm ${watchEntryKind === kind
                         ? kind === "debit"
                           ? "bg-white text-rose-600 ring-1 ring-slate-200"
                           : "bg-white text-emerald-600 ring-1 ring-slate-200"
@@ -139,6 +189,62 @@ export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo }: Props) {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Bank Reference */}
+            <div className="space-y-2 pt-2 border-t border-slate-100">
+              <Label className="text-slate-700 font-medium">Bank Reference (optional)</Label>
+              <Select value={watchBankId ?? "none"} onValueChange={(v) => setValue("bankId", v === "none" ? null : v)}>
+                <SelectTrigger className="shadow-sm">
+                  <SelectValue placeholder="No bank (ledger-only entry)">
+                    {watchBankId && watchBankId !== "none" 
+                      ? (() => {
+                          const b = banks.find((b) => b.id === watchBankId);
+                          return b ? `${b.name} — ₹${b.principalAmount.toLocaleString()}` : watchBankId;
+                        })()
+                      : "No bank (ledger-only entry)"}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No bank (ledger-only entry)</SelectItem>
+                  {banks.map((bank) => (
+                    <SelectItem key={bank.id} value={bank.id}>
+                      {`${bank.name} — ₹${bank.principalAmount.toLocaleString()}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {watchBankId && (
+                <div className="bg-slate-50 p-3 rounded border border-slate-200 space-y-3 mt-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="recordFundMovement" className="text-sm cursor-pointer">
+                      Also record this as a fund movement in the bank
+                    </Label>
+                    <Switch
+                      id="recordFundMovement"
+                      checked={watchRecordFundMovement}
+                      onCheckedChange={(c) => setValue("recordFundMovement", c)}
+                    />
+                  </div>
+                  {watchRecordFundMovement && (
+                    <div className="flex items-center gap-3 pt-2 border-t border-slate-200">
+                      <Label className="text-xs text-slate-500">Fund Direction:</Label>
+                      <Select 
+                        value={watch("bankMovementDirection")} 
+                        onValueChange={(v) => setValue("bankMovementDirection", v as "credit" | "debit")}
+                      >
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="credit" className="text-emerald-600 text-xs font-semibold">Money In (Credit Bank)</SelectItem>
+                          <SelectItem value="debit" className="text-rose-600 text-xs font-semibold">Money Out (Debit Bank)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Amount */}

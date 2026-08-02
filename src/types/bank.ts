@@ -20,6 +20,8 @@ export interface BankTransaction {
   note: string;
   performedBy: string;
   createdAt: Timestamp;
+  relatedLedgerEntryId?: string | null;
+  relatedProfileId?: string | null;
 }
 
 export type BankFormData = Pick<Bank, 'name' | 'principalAmount'>;

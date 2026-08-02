@@ -59,6 +59,8 @@ export const LedgerEntrySchema = z.object({
 
   createdAt: z.instanceof(Timestamp),
   updatedAt: z.instanceof(Timestamp),
+  bankId: z.string().nullable().optional(),
+  bankName: z.string().nullable().optional(),
 });
 export type LedgerEntry = z.infer<typeof LedgerEntrySchema>;
 
@@ -96,6 +98,9 @@ export const ManualLedgerEntryFormSchema = z.object({
   quantityKg: z.preprocess((val) => val === "" || Number.isNaN(val) ? undefined : val, z.number().optional()),
   pricePerUnit: z.preprocess((val) => val === "" || Number.isNaN(val) ? undefined : val, z.number().optional()),
   riceType: z.string().optional(),
+  bankId: z.string().nullable().optional(),
+  recordFundMovement: z.boolean().optional(),
+  bankMovementDirection: z.enum(["credit", "debit"]).optional(),
 });
 export type ManualLedgerEntryForm = z.infer<typeof ManualLedgerEntryFormSchema>;
 

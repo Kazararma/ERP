@@ -16,11 +16,12 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/
 import CustomerForm from "@/components/deals/shared/CustomerForm";
 import { useAuthStore } from "@/stores/authStore";
 import BatchAllocator from "./BatchAllocator";
-
 const schema = z.object({
   customerId: z.string().min(1, "Please select a customer"),
   totalQuantityQuintal: z.coerce.number().min(0.1, "Must be greater than 0"),
   sellingPricePerQuintal: z.coerce.number().min(0, "Cannot be negative"),
+  orderDate: z.string().min(1, "Order date is required"),
+  notes: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -34,7 +35,7 @@ export default function OrderForm({ onSuccess }: { onSuccess: () => void }) {
 
   const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<FormValues>({
     resolver: zodResolver(schema) as any,
-    defaultValues: { customerId: "", totalQuantityQuintal: undefined as any, sellingPricePerQuintal: undefined as any }
+    defaultValues: { customerId: "", totalQuantityQuintal: undefined as any, sellingPricePerQuintal: undefined as any, orderDate: new Date().toISOString().split('T')[0] }
   });
 
   const selectedCustomerId = watch("customerId");
@@ -63,7 +64,8 @@ export default function OrderForm({ onSuccess }: { onSuccess: () => void }) {
         sellingPricePerQuintal: data.sellingPricePerQuintal,
         totalRevenue,
         createdBy: (user?.uid as string) || "unknown",
-        orderDate: Timestamp.now() as any
+        orderDate: Timestamp.fromDate(new Date(data.orderDate)) as any,
+        notes: data.notes
       }, allocations);
       
       onSuccess();
@@ -104,6 +106,12 @@ export default function OrderForm({ onSuccess }: { onSuccess: () => void }) {
         {errors.customerId && <p className="text-red-500 text-xs mt-1">{errors.customerId.message}</p>}
       </div>
 
+      <div className="space-y-2">
+        <Label>Order Date</Label>
+        <Input type="date" {...register("orderDate")} className={errors.orderDate ? "border-red-500" : ""} />
+        {errors.orderDate && <p className="text-red-500 text-xs mt-1">{errors.orderDate.message as string}</p>}
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label>Quantity (Quintals)</Label>
@@ -124,6 +132,15 @@ export default function OrderForm({ onSuccess }: { onSuccess: () => void }) {
         onAllocationsChange={setAllocations}
         onValidChange={setAllocationsValid}
       />
+
+      <div className="space-y-2 mt-4">
+        <Label>Notes (Optional)</Label>
+        <textarea
+          {...register("notes")}
+          className="flex min-h-[80px] w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+          placeholder="Any special instructions or notes..."
+        />
+      </div>
 
       <button 
         type="submit" 

@@ -194,7 +194,7 @@ export const orderService = {
         entityId: orderData.customerId,
         entityType: "customer",
         date: orderData.createdAt || now,
-        particulars: `Sale of ${productLabel}`,
+        particulars: orderData.notes ? `Sale of ${productLabel} - ${orderData.notes}` : `Sale of ${productLabel}`,
         subParticulars: `${orderData.totalWeightKg} kg @ ₹${avgPrice}/kg`,
         refLabel: codeLabel,
         vchType: "Sale",

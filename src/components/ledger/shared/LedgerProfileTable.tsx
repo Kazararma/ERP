@@ -216,14 +216,8 @@ function LedgerTableRow({
         ) : (
           <>
             <p className="font-semibold text-slate-800">{entry.particulars}</p>
-
-            {/* Sub-particulars: show converted string when unit is active */}
             {displayedSub && (
               <p className="text-xs text-slate-500 mt-1">{displayedSub}</p>
-            )}
-
-            {entry.refLabel && (
-              <p className="text-xs text-indigo-600 font-medium mt-1">{entry.refLabel}</p>
             )}
           </>
         )}

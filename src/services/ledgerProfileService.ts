@@ -7,6 +7,7 @@ import { db } from "@/lib/firebase";
 import type { LedgerEntry, ManualLedgerEntryForm, LedgerProfile, LedgerEntryType } from "@/types/ledger-profile";
 import { hasConvertiblePattern } from "@/lib/ledgerUnitConversion";
 import { PaymentVoucherFormValues } from "@/components/deals/PaymentVoucher/paymentVoucherSchema";
+import { useAuthStore } from "@/stores/authStore";
 
 // ── Fetch profile for a given entity ────────────────────────────────────────
 export async function getLedgerProfile(entityId: string): Promise<LedgerProfile | null> {
@@ -83,8 +84,31 @@ export async function addManualLedgerEntry(
   const debit  = form.entryKind === "debit"  ? form.amount : 0;
   const credit = form.entryKind === "credit" ? form.amount : 0;
 
+  const willMoveFunds = !!form.bankId && form.recordFundMovement !== false;
+
   await runTransaction(db, async (transaction) => {
+    let bankSnap = null;
+    let bankRef = null;
+    let bankTxnRef = null;
+    let currentBalance = 0;
+
+    if (willMoveFunds && form.bankId) {
+      bankRef = doc(db, "banks", form.bankId);
+      bankTxnRef = doc(collection(db, "banks", form.bankId, "transactions"));
+      bankSnap = await transaction.get(bankRef);
+      if (!bankSnap.exists()) throw new Error("Selected bank not found.");
+      currentBalance = bankSnap.data().principalAmount as number;
+
+      if (form.bankMovementDirection === "debit") {
+        if (currentBalance - form.amount < 0) {
+          throw new Error("Insufficient bank balance for this manual entry.");
+        }
+      }
+    }
+
     const profileRef = doc(db, "ledgerProfiles", profileId);
+    const profileSnap = await transaction.get(profileRef);
+    const entityName = profileSnap.exists() ? profileSnap.data().entityName : entityId;
     const entryRef   = doc(collection(db, `ledgerProfiles/${profileId}/entries`));
 
     let finalSub = form.subParticulars ?? "";
@@ -109,6 +133,8 @@ export async function addManualLedgerEntry(
       entryType: form.entryKind === "debit" ? "manual_debit" : "manual_credit",
       isManual: true,
       isSystemGenerated: false,
+      bankId: form.bankId ?? null,
+      bankName: bankSnap ? (bankSnap.data().name as string) : null,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
@@ -125,6 +151,28 @@ export async function addManualLedgerEntry(
       closingBalance: increment(debit - credit),
       updatedAt: serverTimestamp(),
     });
+
+    if (willMoveFunds && bankRef && bankTxnRef && form.bankMovementDirection) {
+      const delta = form.bankMovementDirection === "credit" ? form.amount : -form.amount;
+      const newBalance = currentBalance + delta;
+
+      transaction.update(bankRef, { principalAmount: increment(delta), updatedAt: serverTimestamp() });
+
+      transaction.set(bankTxnRef, {
+        id: bankTxnRef.id,
+        type: form.bankMovementDirection,
+        amount: form.amount,
+        balanceAfter: newBalance,
+        relatedSalaryTxId: null,
+        payeeEmployeeId: null,
+        payeeEmployeeName: null,
+        note: `Ledger: ${form.particulars} (${entityType} — ${entityName})`,
+        performedBy: useAuthStore.getState().user?.uid || "unknown",
+        createdAt: serverTimestamp(),
+        relatedLedgerEntryId: entryRef.id,
+        relatedProfileId: profileId,
+      });
+    }
   });
 }
 
@@ -179,12 +227,41 @@ export async function postPaymentVoucherEntry(input: PaymentVoucherFormValues & 
   });
 }
 
-// ── Delete a manual entry (system entries are immutable) ─────────────────────
 export async function deleteManualLedgerEntry(
   profileId: string,
   entry: LedgerEntry
 ): Promise<void> {
+  // 1. Fetch related bank transaction outside the transaction to know how to reverse it
+  let relatedTxnDoc: any = null;
+  if (entry.bankId) {
+    const q = query(
+      collection(db, "banks", entry.bankId, "transactions"),
+      where("relatedLedgerEntryId", "==", entry.id)
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      relatedTxnDoc = snap.docs[0];
+    }
+  }
+
   await runTransaction(db, async (transaction) => {
+    // ---- READS ----
+    let bankSnap = null;
+    let bankRef = null;
+    let currentBalance = 0;
+    
+    // Only reverse fund movement if it actually involved a bank
+    if (entry.bankId && relatedTxnDoc) {
+      bankRef = doc(db, "banks", entry.bankId);
+      bankSnap = await transaction.get(bankRef);
+      if (bankSnap.exists()) {
+        currentBalance = bankSnap.data().principalAmount as number;
+      } else {
+        bankRef = null; // if bank was deleted since, we can't reverse it
+      }
+    }
+
+    // ---- WRITES ----
     const entryRef   = doc(db, `ledgerProfiles/${profileId}/entries`, entry.id);
     const profileRef = doc(db, "ledgerProfiles", profileId);
 
@@ -195,6 +272,18 @@ export async function deleteManualLedgerEntry(
       closingBalance: increment(-(entry.debit - entry.credit)),
       updatedAt: serverTimestamp(),
     });
+
+    if (bankRef && bankSnap && relatedTxnDoc) {
+      const origData = relatedTxnDoc.data();
+      // Reverse the effect on the bank's principal amount
+      const reversalType = origData.type === "credit" ? "debit" : "credit";
+      const delta = reversalType === "credit" ? origData.amount : -origData.amount;
+      
+      transaction.update(bankRef, { principalAmount: increment(delta), updatedAt: serverTimestamp() });
+
+      // Delete the original bank transaction
+      transaction.delete(relatedTxnDoc.ref);
+    }
   });
 }
 

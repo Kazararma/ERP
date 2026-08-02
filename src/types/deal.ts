@@ -13,15 +13,25 @@ export interface Supplier {
   updatedAt: Timestamp;
 }
 
+export interface DealDiscount {
+  discountKg: number;
+  discountRatePerKg: number;
+  discountValue: number;
+}
+
 export interface Deal {
   dealId: string;
   supplierId: string;
   supplierName: string;           // Denormalized
   product: Product;               // Embedded product descriptor
-  totalAmountKg: number;          // Total raw grain purchased in kg
+  totalAmountKg: number;          // Net grain purchased in kg after deduction
+  grossAmountKg?: number;         // Pre-deduction raw grain
+  weightDeductionKg?: number;     // Amount deducted (e.g. tare weight)
   remainingAmountKg: number;      // Raw kg not yet divided into bags
   pricePerKg: number;             // Purchase cost per kg — used for COGS at order time
-  totalCost: number;              // totalAmountKg × pricePerKg
+  totalCost: number;              // NET cost after discount
+  grossCost?: number;             // totalAmountKg * pricePerKg (pre-discount)
+  discount?: DealDiscount | null; // null when no discount applied
   purchaseDate: Timestamp;
   deliveryConfirmed: boolean;
   deliveryDate: Timestamp | null;
