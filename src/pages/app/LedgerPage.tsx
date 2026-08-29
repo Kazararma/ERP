@@ -2,7 +2,9 @@ import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CustomerLedgerTab } from "@/components/ledger/customer/CustomerLedgerTab";
 import { SupplierLedgerTab } from "@/components/ledger/supplier/SupplierLedgerTab";
+import { MiscellaneousLedgerTab } from "@/components/ledger/miscellaneous/MiscellaneousLedgerTab";
 import { SalaryLedgerTab } from "@/components/ledger/salary/SalaryLedgerTab";
+import { BulkLedgerTab } from "@/components/ledger/bulk/BulkLedgerTab";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,9 +43,11 @@ export default function LedgerPage() {
         <TabsList className="w-fit">
           <TabsTrigger value="customer">Customer Ledger</TabsTrigger>
           <TabsTrigger value="supplier">Supplier Ledger</TabsTrigger>
+          <TabsTrigger value="miscellaneous">Miscellaneous Ledger</TabsTrigger>
           <TabsTrigger value="salary" className="flex items-center gap-2">
             Salary Ledger
           </TabsTrigger>
+          <TabsTrigger value="bulk">Bulk Entry</TabsTrigger>
         </TabsList>
         <TabsContent value="customer" className="flex-1 mt-4">
           <CustomerLedgerTab />
@@ -51,8 +55,14 @@ export default function LedgerPage() {
         <TabsContent value="supplier" className="flex-1 mt-4 h-[calc(100vh-160px)]">
           <SupplierLedgerTab />
         </TabsContent>
+        <TabsContent value="miscellaneous" className="flex-1 mt-4 h-[calc(100vh-160px)]">
+          <MiscellaneousLedgerTab />
+        </TabsContent>
         <TabsContent value="salary" className="flex-1 mt-4">
           <SalaryLedgerTab />
+        </TabsContent>
+        <TabsContent value="bulk" className="flex-1 mt-4">
+          <BulkLedgerTab />
         </TabsContent>
       </Tabs>
 

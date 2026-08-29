@@ -21,7 +21,7 @@ interface Props {
   onClose: () => void;
   onSubmit: (data: ManualLedgerEntryForm) => Promise<void>;
   nextVchNo: number;
-  entityType?: "supplier" | "customer";
+  entityType?: "supplier" | "customer" | "miscellaneous";
 }
 
 const VCH_TYPES = ["Purchase", "Payment", "Receipt", "Sale", "Journal", "Manual"] as const;
@@ -62,9 +62,13 @@ export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo, entityType
         bankId: null,
         recordFundMovement: false,
         bankMovementDirection: undefined,
+        amount: 0,
+        particulars: "",
+        subParticulars: "",
       });
     }
-  }, [open, nextVchNo, reset]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const watchQty = watch("quantityKg");
   const watchRate = watch("pricePerUnit");
@@ -103,12 +107,13 @@ export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo, entityType
           shouldRecord = false;
         }
       } else {
+        // customer and miscellaneous: debit = payment received (bank credit), credit = refund/payment out (bank debit)
         if (watchEntryKind === "debit") {
           defaultDirection = "credit"; // Payment received -> money in (bank credit)
           shouldRecord = true;
         } else {
           defaultDirection = "debit"; // Refund/Adjustment -> money out (bank debit)
-          shouldRecord = true; // or false, let's default true for refunds
+          shouldRecord = true;
         }
       }
       
@@ -120,8 +125,11 @@ export function ManualEntryForm({ open, onClose, onSubmit, nextVchNo, entityType
 
   const handleFormSubmit = async (data: ManualLedgerEntryForm) => {
     await onSubmit(data);
-    reset();
-    onClose();
+    // Retain all previous entry fields exactly as they were, just increment the voucher number.
+    reset({
+      ...data,
+      vchNo: (data.vchNo || 0) + 1,
+    });
   };
 
   return (

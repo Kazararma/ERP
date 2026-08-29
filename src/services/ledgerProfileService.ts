@@ -1,6 +1,6 @@
 import {
   collection, doc, getDocs, query, where, orderBy,
-  addDoc, updateDoc, deleteDoc, runTransaction,
+  addDoc, updateDoc, deleteDoc, runTransaction, setDoc,
   serverTimestamp, increment, Timestamp, getDoc
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -21,7 +21,9 @@ export async function getLedgerProfile(entityId: string): Promise<LedgerProfile 
 }
 
 // ── Fetch all profiles for a given entity type ──────────────────────────────
-export async function getLedgerProfilesByType(entityType: "supplier" | "customer"): Promise<Record<string, LedgerProfile>> {
+export async function getLedgerProfilesByType(
+  entityType: "supplier" | "customer" | "miscellaneous"
+): Promise<Record<string, LedgerProfile>> {
   const q = query(
     collection(db, "ledgerProfiles"),
     where("entityType", "==", entityType)
@@ -78,7 +80,7 @@ export async function getLedgerEntries(
 export async function addManualLedgerEntry(
   profileId: string,
   entityId: string,
-  entityType: "supplier" | "customer",
+  entityType: "supplier" | "customer" | "miscellaneous",
   form: ManualLedgerEntryForm
 ): Promise<void> {
   const debit  = form.entryKind === "debit"  ? form.amount : 0;
@@ -495,4 +497,40 @@ export async function reorderLedgerEntry(
     updates.date = Timestamp.fromMillis(newDateMillis);
   }
   await updateDoc(entryRef, updates);
+}
+
+// ── Ensure a LedgerProfile exists for a given entity ─────────────────────────
+// Idempotent: uses a deterministic doc ID so calling it twice is safe.
+// Uses setDoc with { merge: true } so it will not overwrite existing aggregate
+// totals (totalDebit, totalCredit, closingBalance) on subsequent calls.
+export async function ensureLedgerProfile(
+  entityType: "supplier" | "customer" | "miscellaneous",
+  entityId: string,
+  entityName: string,
+  millDefaults: { millName: string; millDescription: string; millContact?: string }
+): Promise<void> {
+  // Deterministic ID convention: "<entityType>_<entityId>"
+  // This matches the pattern used by supplierService/customerService's writeBatch:
+  // those use doc(collection(db, "ledgerProfiles")) which generates a random ID,
+  // but for ensure semantics we use a predictable ID so it is truly idempotent.
+  const profileId = `${entityType}_${entityId}`;
+  const profileRef = doc(db, "ledgerProfiles", profileId);
+  await setDoc(
+    profileRef,
+    {
+      id: profileId,
+      entityId,
+      entityType,
+      entityName,
+      millName: millDefaults.millName,
+      millDescription: millDefaults.millDescription,
+      millContact: millDefaults.millContact ?? "",
+      totalDebit: 0,
+      totalCredit: 0,
+      closingBalance: 0,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true } // preserve existing totalDebit/totalCredit/closingBalance on re-calls
+  );
 }

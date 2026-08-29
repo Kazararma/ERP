@@ -108,8 +108,10 @@ export function LedgerProfileDetail({ profile }: Props) {
     // Optimistic store refresh so sidebar totals update without waiting for listener
     if (profile.entityType === 'supplier') {
       useLedgerStore.getState().fetchSuppliersData(true);
-    } else {
+    } else if (profile.entityType === 'customer') {
       useLedgerStore.getState().fetchCustomersData(true);
+    } else {
+      useLedgerStore.getState().fetchMiscellaneousData(true);
     }
     // No manual fetchEntries() needed — the onSnapshot listener fires automatically
   };
@@ -120,8 +122,10 @@ export function LedgerProfileDetail({ profile }: Props) {
     await deleteManualLedgerEntry(profile.id, entry);
     if (profile.entityType === 'supplier') {
       useLedgerStore.getState().fetchSuppliersData(true);
-    } else {
+    } else if (profile.entityType === 'customer') {
       useLedgerStore.getState().fetchCustomersData(true);
+    } else {
+      useLedgerStore.getState().fetchMiscellaneousData(true);
     }
     // No manual fetchEntries() needed — the onSnapshot listener fires automatically
   };
@@ -158,8 +162,10 @@ export function LedgerProfileDetail({ profile }: Props) {
     // 4. Cascade full refresh into the Zustand store (replaces optimistic values with real DB data)
     if (profile.entityType === "supplier") {
       useLedgerStore.getState().fetchSuppliersData(true);
-    } else {
+    } else if (profile.entityType === "customer") {
       useLedgerStore.getState().fetchCustomersData(true);
+    } else {
+      useLedgerStore.getState().fetchMiscellaneousData(true);
     }
     // No manual fetchEntries() needed — the onSnapshot listener fires automatically
   };

@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import { Customer, Supplier } from "@/types";
+import { MiscellaneousProfile } from "@/types/miscellaneous";
 import { LedgerProfile } from "@/types/ledger-profile";
 import { customerService } from "@/services/customerService";
 import { supplierService } from "@/services/supplierService";
+import { miscellaneousService } from "@/services/miscellaneousService";
 import { getLedgerProfilesByType } from "@/services/ledgerProfileService";
 import { collection, query, orderBy, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -11,16 +13,20 @@ import { LedgerEntry } from "@/types/ledger-profile";
 interface LedgerStore {
   customers: Customer[];
   suppliers: Supplier[];
+  miscellaneous: MiscellaneousProfile[];
   customerProfiles: Record<string, LedgerProfile>;
   supplierProfiles: Record<string, LedgerProfile>;
+  miscellaneousProfiles: Record<string, LedgerProfile>;
   isLoadingCustomers: boolean;
   isLoadingSuppliers: boolean;
+  isLoadingMiscellaneous: boolean;
 
   fetchCustomersData: (force?: boolean) => Promise<void>;
   fetchSuppliersData: (force?: boolean) => Promise<void>;
+  fetchMiscellaneousData: (force?: boolean) => Promise<void>;
   // Optimistic patch — applies local changes to a profile before the refetch lands
   updateProfileInStore: (
-    entityType: "supplier" | "customer",
+    entityType: "supplier" | "customer" | "miscellaneous",
     entityId: string,
     patch: Partial<Pick<LedgerProfile, "totalDebit" | "totalCredit" | "closingBalance">>
   ) => void;
@@ -34,10 +40,13 @@ interface LedgerStore {
 export const useLedgerStore = create<LedgerStore>((set, get) => ({
   customers: [],
   suppliers: [],
+  miscellaneous: [],
   customerProfiles: {},
   supplierProfiles: {},
+  miscellaneousProfiles: {},
   isLoadingCustomers: false,
   isLoadingSuppliers: false,
+  isLoadingMiscellaneous: false,
   activeProfileEntries: [],
   activeProfileUnsubscribe: null,
 
@@ -72,6 +81,21 @@ export const useLedgerStore = create<LedgerStore>((set, get) => ({
     }
   },
 
+  fetchMiscellaneousData: async (force = false) => {
+    if (!force && get().miscellaneous.length > 0) return;
+    
+    set({ isLoadingMiscellaneous: true });
+    try {
+      const misc = await miscellaneousService.getAllMiscellaneous();
+      const profs = await getLedgerProfilesByType("miscellaneous");
+      set({ miscellaneous: misc, miscellaneousProfiles: profs });
+    } catch (e) {
+      console.error("Failed to fetch miscellaneous ledger data:", e);
+    } finally {
+      set({ isLoadingMiscellaneous: false });
+    }
+  },
+
   updateProfileInStore: (entityType, entityId, patch) => {
     if (entityType === "supplier") {
       set((state) => {
@@ -84,7 +108,7 @@ export const useLedgerStore = create<LedgerStore>((set, get) => ({
           },
         };
       });
-    } else {
+    } else if (entityType === "customer") {
       set((state) => {
         const existing = state.customerProfiles[entityId];
         if (!existing) return state;
@@ -95,8 +119,20 @@ export const useLedgerStore = create<LedgerStore>((set, get) => ({
           },
         };
       });
+    } else if (entityType === "miscellaneous") {
+      set((state) => {
+        const existing = state.miscellaneousProfiles[entityId];
+        if (!existing) return state;
+        return {
+          miscellaneousProfiles: {
+            ...state.miscellaneousProfiles,
+            [entityId]: { ...existing, ...patch },
+          },
+        };
+      });
     }
   },
+
 
   subscribeToProfileEntries: (profileId: string) => {
     get().unsubscribeFromProfileEntries();

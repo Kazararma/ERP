@@ -48,6 +48,9 @@ service cloud.firestore {
     match /customers/{id} {
       allow read, write: if isActive();
     }
+    match /miscellaneous/{id} {
+      allow read, write: if isActive();
+    }
     match /deals/{dealId} {
       allow read, write: if isActive();
       match /stagingBatches/{batchId} {

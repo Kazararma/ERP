@@ -6,16 +6,44 @@ import { DealCard } from "./DealCard";
 import SupplierManager from "./SupplierManager";
 import { Dialog, DialogTrigger } from "@/components/ui/dialog";
 import { DealsFilterValues } from "@/components/deals/DealsFilter";
+import { useUiStore } from "@/stores/uiStore";
+import toast from "react-hot-toast";
+import { Button } from "@/components/ui/button";
 
 export function BoughtTab({ dateFilter }: { dateFilter?: DealsFilterValues }) {
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [converting, setConverting] = useState(false);
 
   const fetchDeals = async () => {
     setLoading(true);
     const data = await dealService.getAllDeals();
     setDeals(data);
     setLoading(false);
+  };
+
+  const handleConvertAll = async () => {
+    const pendingCount = deals.filter(d => d.status === "pending_delivery").length;
+    if (pendingCount === 0) return;
+
+    const confirmed = await useUiStore.getState().requestConfirm(
+      "Convert All Pending Deliveries",
+      `Are you sure you want to confirm delivery for all ${pendingCount} pending purchase(s)? This will post the amounts to the respective supplier ledger accounts immediately.`
+    );
+
+    if (!confirmed) return;
+
+    setConverting(true);
+    try {
+      const res = await dealService.convertAllPendingDeliveries();
+      toast.success(`Successfully confirmed ${res.confirmedCount} deliveries`);
+      fetchDeals();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Failed to convert deliveries");
+    } finally {
+      setConverting(false);
+    }
   };
 
   useEffect(() => {
@@ -51,6 +79,16 @@ export function BoughtTab({ dateFilter }: { dateFilter?: DealsFilterValues }) {
             } />
             <SupplierManager />
           </Dialog>
+          
+          <Button 
+            variant="outline" 
+            onClick={handleConvertAll} 
+            disabled={converting || deals.filter(d => d.status === "pending_delivery").length === 0}
+            className="border-amber-200 text-amber-700 hover:bg-amber-50 hover:text-amber-800"
+          >
+            {converting ? "Converting..." : "Convert All Pending"}
+          </Button>
+
           <AddDealModal onSuccess={fetchDeals} />
         </div>
       </div>

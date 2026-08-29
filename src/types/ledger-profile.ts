@@ -26,7 +26,7 @@ export const VchTypeEnum = z.enum([
 ]);
 export type VchType = z.infer<typeof VchTypeEnum>;
 
-export const EntityTypeEnum = z.enum(["supplier", "customer"]);
+export const EntityTypeEnum = z.enum(["supplier", "customer", "miscellaneous"]);
 export type EntityType = z.infer<typeof EntityTypeEnum>;
 
 // ─── Ledger Entry (single row in the ledger table) ───────────────────────────

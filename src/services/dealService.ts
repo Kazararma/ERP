@@ -120,49 +120,54 @@ export const dealService = {
       const currentDeal = dealDoc.data() as Deal;
       if (currentDeal.deliveryConfirmed) throw new Error("Delivery already confirmed!");
 
-      // Update Deal
-      transaction.update(dealRef, {
-        deliveryConfirmed: true,
-        deliveryDate: serverTimestamp(),
-        status: "delivered",
-        updatedAt: serverTimestamp(),
-      });
-
-      const entryRef = doc(collection(db, `ledgerProfiles/${profileId}/entries`));
-      transaction.set(entryRef, {
-        id: entryRef.id,
-        profileId,
-        entityId: currentDeal.supplierId,
-        entityType: "supplier",
-        date: currentDeal.purchaseDate || serverTimestamp(),
-        particulars: currentDeal.discount 
-          ? `Purchase — ${currentDeal.product?.riceTypeName || "Rice"} (Net of Discount)${currentDeal.notes ? ` - ${currentDeal.notes}` : ""}`
-          : `Purchase — ${currentDeal.product?.riceTypeName || "Rice"}${currentDeal.notes ? ` - ${currentDeal.notes}` : ""}`,
-        subParticulars: currentDeal.discount
-          ? `${currentDeal.totalAmountKg} kg @ ₹${currentDeal.pricePerKg}/kg${(currentDeal.weightDeductionKg || 0) > 0 ? ` | Ded: ${currentDeal.weightDeductionKg} kg` : ""} | Discount: ${currentDeal.discount.discountKg} kg @ ₹${currentDeal.discount.discountRatePerKg}/kg (-₹${currentDeal.discount.discountValue.toFixed(2)})`
-          : `${currentDeal.totalAmountKg} kg @ ₹${currentDeal.pricePerKg}/kg${(currentDeal.weightDeductionKg || 0) > 0 ? ` | Ded: ${currentDeal.weightDeductionKg} kg` : ""}`,
-        refLabel: `Code: ${currentDeal.product.productCode}`,
-        vchType: "Purchase",
-        vchNo: Math.floor(Math.random() * 1000000) || 1,
-        debit: currentDeal.totalCost,
-        credit: 0,
-        entryType: "delivery_confirmed",
-        isManual: false,
-        isSystemGenerated: true,
-        relatedDocId: dealId,
-        quantityKg: currentDeal.totalAmountKg,
-        pricePerUnit: currentDeal.pricePerKg,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-
-      const profileRef = doc(db, "ledgerProfiles", profileId);
-      transaction.update(profileRef, {
-        totalDebit: increment(currentDeal.totalCost),
-        closingBalance: increment(currentDeal.totalCost),
-        updatedAt: serverTimestamp(),
-      });
+      applyDeliveryConfirmation(transaction, dealDoc, profileId);
     });
+  },
+
+  async convertAllPendingDeliveries(): Promise<{ confirmedCount: number }> {
+    const pendingQuery = query(
+      collection(db, "deals"),
+      where("status", "==", "pending_delivery")
+    );
+    const pendingSnap = await getDocs(pendingQuery);
+
+    if (pendingSnap.empty) {
+      return { confirmedCount: 0 };
+    }
+
+    const profilesSnap = await getDocs(query(collection(db, "ledgerProfiles"), where("entityType", "==", "supplier")));
+    const supplierToProfileMap = new Map<string, string>();
+    profilesSnap.docs.forEach(d => {
+      supplierToProfileMap.set(d.data().entityId, d.id);
+    });
+
+    const CHUNK_SIZE = 150;
+    const dealIds = pendingSnap.docs.map((d) => d.id);
+    let confirmedCount = 0;
+
+    for (let i = 0; i < dealIds.length; i += CHUNK_SIZE) {
+      const chunk = dealIds.slice(i, i + CHUNK_SIZE);
+      await runTransaction(db, async (transaction) => {
+        // ── ALL READS FIRST ──
+        const dealRefs = chunk.map((id) => doc(db, "deals", id));
+        const dealSnaps = await Promise.all(dealRefs.map((ref) => transaction.get(ref)));
+
+        // ── COMPUTE + WRITES ──
+        for (const dealSnap of dealSnaps) {
+          if (!dealSnap.exists()) continue;
+          const currentDeal = dealSnap.data() as Deal;
+          if (currentDeal.deliveryConfirmed) continue;
+          
+          const profileId = supplierToProfileMap.get(currentDeal.supplierId);
+          if (!profileId) continue;
+
+          applyDeliveryConfirmation(transaction, dealSnap, profileId);
+          confirmedCount += 1;
+        }
+      });
+    }
+
+    return { confirmedCount };
   },
 
   /**
@@ -442,5 +447,57 @@ export function subscribeToBagDivisions(
   );
   return onSnapshot(q, (snap) => {
     callback(snap.docs.map((d) => d.data() as BagDivision));
+  });
+}
+
+function applyDeliveryConfirmation(
+  transaction: any,
+  dealSnap: any,
+  profileId: string
+) {
+  const currentDeal = dealSnap.data() as Deal;
+  const dealRef = dealSnap.ref;
+
+  // Update Deal
+  transaction.update(dealRef, {
+    deliveryConfirmed: true,
+    deliveryDate: serverTimestamp(),
+    status: "delivered",
+    updatedAt: serverTimestamp(),
+  });
+
+  const entryRef = doc(collection(db, `ledgerProfiles/${profileId}/entries`));
+  transaction.set(entryRef, {
+    id: entryRef.id,
+    profileId,
+    entityId: currentDeal.supplierId,
+    entityType: "supplier",
+    date: currentDeal.purchaseDate || serverTimestamp(),
+    particulars: currentDeal.discount 
+      ? `Purchase — ${currentDeal.product?.riceTypeName || "Rice"} (Net of Discount)${currentDeal.notes ? ` - ${currentDeal.notes}` : ""}`
+      : `Purchase — ${currentDeal.product?.riceTypeName || "Rice"}${currentDeal.notes ? ` - ${currentDeal.notes}` : ""}`,
+    subParticulars: currentDeal.discount
+      ? `${currentDeal.totalAmountKg} kg @ ₹${currentDeal.pricePerKg}/kg${(currentDeal.weightDeductionKg || 0) > 0 ? ` | Ded: ${currentDeal.weightDeductionKg} kg` : ""} | Discount: ${currentDeal.discount.discountKg} kg @ ₹${currentDeal.discount.discountRatePerKg}/kg (-₹${currentDeal.discount.discountValue.toFixed(2)})`
+      : `${currentDeal.totalAmountKg} kg @ ₹${currentDeal.pricePerKg}/kg${(currentDeal.weightDeductionKg || 0) > 0 ? ` | Ded: ${currentDeal.weightDeductionKg} kg` : ""}`,
+    refLabel: `Code: ${currentDeal.product.productCode}`,
+    vchType: "Purchase",
+    vchNo: Math.floor(Math.random() * 1000000) || 1,
+    debit: currentDeal.totalCost,
+    credit: 0,
+    entryType: "delivery_confirmed",
+    isManual: false,
+    isSystemGenerated: true,
+    relatedDocId: dealSnap.id,
+    quantityKg: currentDeal.totalAmountKg,
+    pricePerUnit: currentDeal.pricePerKg,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  const profileRef = doc(db, "ledgerProfiles", profileId);
+  transaction.update(profileRef, {
+    totalDebit: increment(currentDeal.totalCost),
+    closingBalance: increment(currentDeal.totalCost),
+    updatedAt: serverTimestamp(),
   });
 }

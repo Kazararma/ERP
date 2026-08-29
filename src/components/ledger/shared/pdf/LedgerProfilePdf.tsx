@@ -114,7 +114,11 @@ export function LedgerProfilePdf({
           <Text style={S.millDesc}>{profile.millDescription}</Text>
           {/* millContact/phone intentionally omitted from PDF output */}
           <Text style={S.entityName}>{profile.entityName}</Text>
-          <Text style={S.ledgerLabel}>Ledger Account</Text>
+          <Text style={S.ledgerLabel}>
+            {profile.entityType === "supplier" ? "Supplier Ledger Statement" :
+             profile.entityType === "customer" ? "Customer Ledger Statement" :
+             "Miscellaneous Ledger Statement"}
+          </Text>
         </View>
 
         <Text style={S.dateRange}>

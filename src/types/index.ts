@@ -6,6 +6,7 @@ export * from "./order";
 export * from "./inventory";
 export * from "./ledger";
 export * from "./dealLog";
+export * from "./miscellaneous";
 
 export interface AppUser {
   uid: string;

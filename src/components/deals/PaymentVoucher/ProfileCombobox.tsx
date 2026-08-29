@@ -8,12 +8,13 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ProfileComboboxProps {
-  entityType: 'supplier' | 'customer';
+  entityType: 'supplier' | 'customer' | 'miscellaneous';
   value: string;
   onChange: (profileId: string, profile: LedgerProfile) => void;
+  hideSummary?: boolean;
 }
 
-export function ProfileCombobox({ entityType, value, onChange }: ProfileComboboxProps) {
+export function ProfileCombobox({ entityType, value, onChange, hideSummary = false }: ProfileComboboxProps) {
   const [profiles, setProfiles] = useState<LedgerProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -94,7 +95,7 @@ export function ProfileCombobox({ entityType, value, onChange }: ProfileCombobox
         </PopoverContent>
       </Popover>
 
-      {selectedProfile && (
+      {selectedProfile && !hideSummary && (
         <div className="flex justify-between items-center text-xs p-3 bg-slate-50 rounded-lg border border-slate-100">
           <div className="flex flex-col">
             <span className="text-slate-500 font-bold uppercase tracking-wider mb-0.5">Total Debit</span>
@@ -108,10 +109,8 @@ export function ProfileCombobox({ entityType, value, onChange }: ProfileCombobox
             <span className="text-slate-500 font-bold uppercase tracking-wider mb-0.5">Closing Bal</span>
             <span className={`font-black ${selectedProfile.closingBalance > 0 ? 'text-rose-600' : selectedProfile.closingBalance < 0 ? 'text-emerald-600' : 'text-slate-800'}`}>
               ₹{Math.abs(selectedProfile.closingBalance).toLocaleString()}
-              {selectedProfile.closingBalance > 0 && entityType === 'supplier' ? ' (Cr)' : ''}
-              {selectedProfile.closingBalance > 0 && entityType === 'customer' ? ' (Cr)' : ''}
-              {selectedProfile.closingBalance < 0 && entityType === 'supplier' ? ' (Dr)' : ''}
-              {selectedProfile.closingBalance < 0 && entityType === 'customer' ? ' (Dr)' : ''}
+              {selectedProfile.closingBalance > 0 ? ' (Cr)' : ''}
+              {selectedProfile.closingBalance < 0 ? ' (Dr)' : ''}
             </span>
           </div>
         </div>
