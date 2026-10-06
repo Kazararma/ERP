@@ -12,12 +12,14 @@ import { auth } from "@/lib/firebase";
 import toast from "react-hot-toast";
 import { useUiStore } from "@/stores/uiStore";
 import { useLedgerStore } from "@/stores/useLedgerStore";
+import { DeleteLedgerProfilePanel } from "../shared/DeleteLedgerProfilePanel";
 
 export function MiscellaneousManager() {
-  const { miscellaneous: profilesList, fetchMiscellaneousData } = useLedgerStore();
+  const { miscellaneous: profilesList, miscellaneousProfiles, fetchMiscellaneousData } = useLedgerStore();
   const [loading, setLoading] = useState(false);
   const [editingProfile, setEditingProfile] = useState<MiscellaneousProfile | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [showDeletePanel, setShowDeletePanel] = useState(false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<MiscellaneousProfileFormValues>({
     resolver: zodResolver(miscellaneousProfileSchema)
@@ -29,12 +31,14 @@ export function MiscellaneousManager() {
 
   const openAddForm = () => {
     setEditingProfile(null);
+    setShowDeletePanel(false);
     reset({ name: "", description: "", contactPhone: "", contactEmail: "", address: "" });
     setIsFormOpen(true);
   };
 
   const openEditForm = (profile: MiscellaneousProfile) => {
     setEditingProfile(profile);
+    setShowDeletePanel(false);
     reset({ ...profile, contactEmail: profile.contactEmail || "" });
     setIsFormOpen(true);
   };
@@ -130,6 +134,31 @@ export function MiscellaneousManager() {
               {editingProfile ? "Save Changes" : "Add Profile"}
             </button>
           </div>
+          
+          {editingProfile && miscellaneousProfiles[editingProfile.miscId] && (
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-semibold text-slate-700">Danger Zone</span>
+                <button 
+                  type="button"
+                  onClick={() => setShowDeletePanel(!showDeletePanel)}
+                  className="text-sm text-red-600 hover:text-red-800 font-semibold"
+                >
+                  {showDeletePanel ? "Hide Delete Options" : "Delete Ledger Profile"}
+                </button>
+              </div>
+              {showDeletePanel && (
+                <DeleteLedgerProfilePanel 
+                  profile={miscellaneousProfiles[editingProfile.miscId]}
+                  allProfiles={Object.values(miscellaneousProfiles)}
+                  onDeleted={() => {
+                    setIsFormOpen(false);
+                    fetchMiscellaneousData(true);
+                  }}
+                />
+              )}
+            </div>
+          )}
         </form>
       ) : (
         <div className="flex flex-col h-full overflow-hidden">

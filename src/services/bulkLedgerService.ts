@@ -9,6 +9,7 @@ import {
 import { db } from "@/lib/firebase";
 import { BulkLedgerRow } from "@/schemas/bulkLedgerSchema";
 import { useAuthStore } from "@/stores/authStore";
+import { toNum } from "@/utils/number";
 
 // ─── Internal types ────────────────────────────────────────────────────────────
 
@@ -90,7 +91,7 @@ export async function submitBulkLedgerEntries(rows: BulkLedgerRow[]): Promise<vo
       let creditDelta = 0;
 
       for (const { ref: entryRef, row } of entryRefs) {
-        const amount = row.amount;
+        const amount = toNum(row.amount);
         const isDebit = row.entryKind === "debit";
 
         if (isDebit) {

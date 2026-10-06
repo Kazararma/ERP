@@ -43,18 +43,18 @@ export const LedgerEntrySchema = z.object({
   refLabel: z.string().optional(),       // e.g. "New Ref 01"
 
   vchType: VchTypeEnum,
-  vchNo: z.number().int().positive(),
+  vchNo: z.coerce.number().int().positive(),
 
-  debit: z.number().min(0).default(0),   // Amount in ₹; 0 if credit entry
-  credit: z.number().min(0).default(0),  // Amount in ₹; 0 if debit entry
+  debit: z.coerce.number().min(0).default(0),   // Amount in ₹; 0 if credit entry
+  credit: z.coerce.number().min(0).default(0),  // Amount in ₹; 0 if debit entry
 
   entryType: LedgerEntryTypeEnum,
   isManual: z.boolean().default(false),  // True for user-created rows
   isSystemGenerated: z.boolean().default(true),
 
   relatedDocId: z.string().optional(),   // Deal ID / Order ID that triggered this entry
-  quantityKg: z.number().optional(),     // Populated when entry involves stock movement
-  pricePerUnit: z.number().optional(),   // ₹/qtl or ₹/kg
+  quantityKg: z.coerce.number().optional(),     // Populated when entry involves stock movement
+  pricePerUnit: z.coerce.number().optional(),   // ₹/qtl or ₹/kg
   riceType: z.string().optional(),       // Type of rice
 
   createdAt: z.instanceof(Timestamp),
@@ -76,9 +76,9 @@ export const LedgerProfileSchema = z.object({
   millDescription: z.string(),         // Address / contact line
   millContact: z.string().optional(),
 
-  totalDebit: z.number().default(0),    // Running aggregate — updated via transaction
-  totalCredit: z.number().default(0),
-  closingBalance: z.number().default(0), // totalDebit - totalCredit (positive = we owe them)
+  totalDebit: z.coerce.number().default(0),    // Running aggregate — updated via transaction
+  totalCredit: z.coerce.number().default(0),
+  closingBalance: z.coerce.number().default(0), // totalDebit - totalCredit (positive = we owe them)
 
   createdAt: z.instanceof(Timestamp),
   updatedAt: z.instanceof(Timestamp),
@@ -92,11 +92,11 @@ export const ManualLedgerEntryFormSchema = z.object({
   particulars: z.string().min(1, "Particulars required"),
   subParticulars: z.string().optional(),
   vchType: VchTypeEnum,
-  vchNo: z.number().int().positive("Voucher number must be positive"),
+  vchNo: z.coerce.number().int().positive("Voucher number must be positive"),
   entryKind: z.enum(["debit", "credit"]),
-  amount: z.number().positive("Amount must be positive"),
-  quantityKg: z.preprocess((val) => val === "" || Number.isNaN(val) ? undefined : val, z.number().optional()),
-  pricePerUnit: z.preprocess((val) => val === "" || Number.isNaN(val) ? undefined : val, z.number().optional()),
+  amount: z.coerce.number().positive("Amount must be positive"),
+  quantityKg: z.coerce.number().optional(),
+  pricePerUnit: z.coerce.number().optional(),
   riceType: z.string().optional(),
   bankId: z.string().nullable().optional(),
   recordFundMovement: z.boolean().optional(),

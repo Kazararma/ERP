@@ -1,13 +1,14 @@
 import {
   collection, doc, getDocs, query, where, orderBy,
   addDoc, updateDoc, deleteDoc, runTransaction, setDoc,
-  serverTimestamp, increment, Timestamp, getDoc
+  serverTimestamp, increment, Timestamp, getDoc, writeBatch
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import type { LedgerEntry, ManualLedgerEntryForm, LedgerProfile, LedgerEntryType } from "@/types/ledger-profile";
 import { hasConvertiblePattern } from "@/lib/ledgerUnitConversion";
 import { PaymentVoucherFormValues } from "@/components/deals/PaymentVoucher/paymentVoucherSchema";
 import { useAuthStore } from "@/stores/authStore";
+import { toNum } from "@/utils/number";
 
 // ── Fetch profile for a given entity ────────────────────────────────────────
 export async function getLedgerProfile(entityId: string): Promise<LedgerProfile | null> {
@@ -17,7 +18,8 @@ export async function getLedgerProfile(entityId: string): Promise<LedgerProfile 
   );
   const snap = await getDocs(q);
   if (snap.empty) return null;
-  return snap.docs[0].data() as LedgerProfile;
+  const docSnap = snap.docs[0];
+  return { ...(docSnap.data() as LedgerProfile), id: docSnap.id };
 }
 
 // ── Fetch all profiles for a given entity type ──────────────────────────────
@@ -29,12 +31,28 @@ export async function getLedgerProfilesByType(
     where("entityType", "==", entityType)
   );
   const snap = await getDocs(q);
-  const profiles: Record<string, LedgerProfile> = {};
-  snap.docs.forEach(doc => {
-    const data = doc.data() as LedgerProfile;
-    profiles[data.entityId] = data;
+  const result: Record<string, LedgerProfile> = {};
+  
+  snap.docs.forEach((d) => {
+    const profile: LedgerProfile = { ...(d.data() as LedgerProfile), id: d.id };
+    if (!profile.entityId) {
+      console.error("[ledger] profile without entityId", d.id);
+      return;
+    }
+    const existing = result[profile.entityId];
+    if (existing) {
+      console.error(
+        `[ledger] DUPLICATE profiles for ${entityType}:${profile.entityId}`,
+        existing.id,
+        profile.id
+      );
+      // keep the one that follows the documented convention `${entityType}_${entityId}`
+      if (existing.id === `${entityType}_${profile.entityId}`) return;
+    }
+    result[profile.entityId] = profile;
   });
-  return profiles;
+  
+  return result;
 }
 
 // ── Fetch all entries for a profile (optionally filtered by date range) ──────
@@ -43,7 +61,7 @@ export async function getLedgerEntries(
   dateFrom?: Date,
   dateTo?: Date
 ): Promise<LedgerEntry[]> {
-  let q = query(
+  const q = query(
     collection(db, `ledgerProfiles/${profileId}/entries`),
     orderBy("date", "asc")
   );
@@ -76,6 +94,74 @@ export async function getLedgerEntries(
   return entries;
 }
 
+export async function getLedgerEntryCount(profileId: string): Promise<number> {
+  const q = collection(db, `ledgerProfiles/${profileId}/entries`);
+  const snap = await getDocs(q);
+  return snap.size;
+}
+
+export async function deleteLedgerProfile(profileId: string): Promise<void> {
+  const profileRef = doc(db, "ledgerProfiles", profileId);
+  const entriesRef = collection(db, `ledgerProfiles/${profileId}/entries`);
+  
+  const snap = await getDocs(entriesRef);
+  const entries = snap.docs.map(d => d.data() as LedgerEntry);
+  
+  const profileSnap = await getDoc(profileRef);
+  const closingBalance = profileSnap.exists() ? toNum(profileSnap.data().closingBalance) : 0;
+  
+  for (const entry of entries) {
+    if (entry.bankId) {
+      throw new Error("Cannot delete profile: Contains entries linked to bank transactions.");
+    }
+    if (entry.isSystemGenerated && closingBalance !== 0) {
+      throw new Error("Cannot delete profile: Contains system-generated entries and has a non-zero closing balance.");
+    }
+  }
+
+  const CHUNK_SIZE = 400;
+  const batches: any[] = [];
+  let currentBatch = writeBatch(db);
+  let opCount = 0;
+
+  for (const entryDoc of snap.docs) {
+    currentBatch.delete(entryDoc.ref);
+    opCount++;
+    if (opCount === CHUNK_SIZE) {
+      batches.push(currentBatch.commit());
+      currentBatch = writeBatch(db);
+      opCount = 0;
+    }
+  }
+  if (opCount > 0) {
+    batches.push(currentBatch.commit());
+  }
+  
+  await Promise.all(batches);
+  await deleteDoc(profileRef);
+}
+
+/** Keep the denormalised ledgerProfiles.entityName in sync when an entity is renamed. */
+export async function syncLedgerProfileName(
+  entityType: "supplier" | "customer" | "miscellaneous",
+  entityId: string,
+  entityName: string
+): Promise<void> {
+  const snap = await getDocs(
+    query(
+      collection(db, "ledgerProfiles"),
+      where("entityType", "==", entityType),
+      where("entityId", "==", entityId)
+    )
+  );
+  if (snap.empty) return;
+  const batch = writeBatch(db);
+  snap.docs.forEach((d) =>
+    batch.update(d.ref, { entityName, updatedAt: serverTimestamp() })
+  );
+  await batch.commit();
+}
+
 // ── Add a manual ledger entry ────────────────────────────────────────────────
 export async function addManualLedgerEntry(
   profileId: string,
@@ -83,8 +169,9 @@ export async function addManualLedgerEntry(
   entityType: "supplier" | "customer" | "miscellaneous",
   form: ManualLedgerEntryForm
 ): Promise<void> {
-  const debit  = form.entryKind === "debit"  ? form.amount : 0;
-  const credit = form.entryKind === "credit" ? form.amount : 0;
+  const amount = toNum(form.amount);
+  const debit  = form.entryKind === "debit"  ? amount : 0;
+  const credit = form.entryKind === "credit" ? amount : 0;
 
   const willMoveFunds = !!form.bankId && form.recordFundMovement !== false;
 
@@ -102,7 +189,7 @@ export async function addManualLedgerEntry(
       currentBalance = bankSnap.data().principalAmount as number;
 
       if (form.bankMovementDirection === "debit") {
-        if (currentBalance - form.amount < 0) {
+        if (currentBalance - amount < 0) {
           throw new Error("Insufficient bank balance for this manual entry.");
         }
       }
@@ -155,7 +242,7 @@ export async function addManualLedgerEntry(
     });
 
     if (willMoveFunds && bankRef && bankTxnRef && form.bankMovementDirection) {
-      const delta = form.bankMovementDirection === "credit" ? form.amount : -form.amount;
+      const delta = form.bankMovementDirection === "credit" ? amount : -amount;
       const newBalance = currentBalance + delta;
 
       transaction.update(bankRef, { principalAmount: increment(delta), updatedAt: serverTimestamp() });
@@ -163,7 +250,7 @@ export async function addManualLedgerEntry(
       transaction.set(bankTxnRef, {
         id: bankTxnRef.id,
         type: form.bankMovementDirection,
-        amount: form.amount,
+        amount: amount,
         balanceAfter: newBalance,
         relatedSalaryTxId: null,
         payeeEmployeeId: null,
@@ -193,8 +280,9 @@ export async function postPaymentVoucherEntry(input: PaymentVoucherFormValues & 
     // Supplier Payment -> Credit (reduces positive closing balance)
     // Customer Payment -> Debit (reduces negative closing balance)
     const direction = input.entityType === 'supplier' ? 'credit' : 'debit';
-    const debit = direction === 'debit' ? input.amount : 0;
-    const credit = direction === 'credit' ? input.amount : 0;
+    const amount = toNum(input.amount);
+    const debit = direction === 'debit' ? amount : 0;
+    const credit = direction === 'credit' ? amount : 0;
 
     const entryData: any = {
       id: entryRef.id,
@@ -330,7 +418,10 @@ export async function updateLedgerEntryAmount(
   newDebit: number,
   newCredit: number
 ): Promise<void> {
-  if (newDebit < 0 || newCredit < 0) {
+  const nDebit = toNum(newDebit);
+  const nCredit = toNum(newCredit);
+
+  if (nDebit < 0 || nCredit < 0) {
     throw new Error("Debit and Credit amounts must be non-negative.");
   }
 
@@ -375,18 +466,18 @@ export async function updateLedgerEntryAmount(
       dealSnap = await transaction.get(dealRef);
     }
 
-    const oldDebit = currentData.debit ?? 0;
-    const oldCredit = currentData.credit ?? 0;
+    const oldDebit = toNum(currentData.debit);
+    const oldCredit = toNum(currentData.credit);
 
-    const debitDelta = newDebit - oldDebit;
-    const creditDelta = newCredit - oldCredit;
+    const debitDelta = nDebit - oldDebit;
+    const creditDelta = nCredit - oldCredit;
 
     let newPricePerUnit = currentData.pricePerUnit;
     let newSubParticulars = currentData.subParticulars;
 
     // Recalculate unit price and rewrite subParticulars if quantity is available
     if (currentData.quantityKg && currentData.quantityKg > 0) {
-      const totalValue = newDebit > 0 ? newDebit : newCredit;
+      const totalValue = nDebit > 0 ? nDebit : nCredit;
       newPricePerUnit = totalValue / currentData.quantityKg;
       
       if (newSubParticulars && hasConvertiblePattern(newSubParticulars)) {
@@ -405,8 +496,8 @@ export async function updateLedgerEntryAmount(
 
     // Write the new amounts to the entry document
     transaction.update(entryRef, {
-      debit: newDebit,
-      credit: newCredit,
+      debit: nDebit,
+      credit: nCredit,
       ...(newPricePerUnit !== currentData.pricePerUnit && { pricePerUnit: newPricePerUnit }),
       ...(newSubParticulars !== currentData.subParticulars && { subParticulars: newSubParticulars }),
       updatedAt: serverTimestamp(),
@@ -423,7 +514,7 @@ export async function updateLedgerEntryAmount(
 
     // ── Cascade to Deal and SupplierLedgerEntry ──
     if (dealSnap && dealSnap.exists()) {
-      const totalValue = newDebit > 0 ? newDebit : newCredit;
+      const totalValue = nDebit > 0 ? nDebit : nCredit;
       transaction.update(dealRef, {
         pricePerKg: newPricePerUnit,
         totalCost: totalValue,
@@ -464,8 +555,8 @@ export async function updateAllLedgerProfilesSettings(
   
   // Use batched writes for efficiency
   const batches: any[] = [];
-  let currentBatch: any = null;
-  let opCount = 0;
+  const currentBatch: any = null;
+  const opCount = 0;
 
   // We have to import writeBatch if we want to use it properly, but we can also just run normal updateDocs if there aren't too many.
   // Actually, let's just do Promise.all with updateDoc since the number of profiles is relatively small (e.g. 50-500)

@@ -25,7 +25,6 @@ interface Props {
 }
 
 export function LedgerProfileDetail({ profile }: Props) {
-  const [localProfile, setLocalProfile] = useState(profile);
   const [entries, setEntries]       = useState<LedgerEntry[]>([]);
   const [loading, setLoading]       = useState(true);
   const [showForm, setShowForm]     = useState(false);
@@ -48,7 +47,7 @@ export function LedgerProfileDetail({ profile }: Props) {
   };
   const [pdfOptions, setPdfOptions] = useState<LedgerPdfOptions>(DEFAULT_PDF_OPTIONS);
 
-  const { activeProfileEntries, subscribeToProfileEntries } = useLedgerStore();
+  const { activeProfileEntries, activeProfileEntriesFor, subscribeToProfileEntries } = useLedgerStore();
 
   useEffect(() => {
     setLoading(true);
@@ -144,7 +143,7 @@ export function LedgerProfileDetail({ profile }: Props) {
     // 1. Calculate the new profile totals for optimistic store update
     const oldDebit = entry.debit ?? 0;
     const oldCredit = entry.credit ?? 0;
-    const currentProfile = localProfile;
+    const currentProfile = profile;
     const optimisticTotalDebit = currentProfile.totalDebit + (newDebit - oldDebit);
     const optimisticTotalCredit = currentProfile.totalCredit + (newCredit - oldCredit);
     const optimisticClosingBalance = optimisticTotalDebit - optimisticTotalCredit;
@@ -212,7 +211,7 @@ export function LedgerProfileDetail({ profile }: Props) {
   const handlePdfExport = async () => {
     const blob = await pdf(
       <LedgerProfilePdf
-        profile={localProfile}
+        profile={profile}
         entries={entries}
         dateFrom={dateFrom ? new Date(dateFrom + "T00:00:00") : new Date()}
         dateTo={dateTo   ? new Date(dateTo + "T23:59:59")   : new Date()}
@@ -220,13 +219,17 @@ export function LedgerProfileDetail({ profile }: Props) {
         activeUnit={activeLedgerUnit}
       />
     ).toBlob();
-    saveAs(blob, `ledger_${localProfile.entityName.replace(/\s+/g, "_")}.pdf`);
+    saveAs(blob, `ledger_${profile.entityName.replace(/\s+/g, "_")}.pdf`);
     setShowPdfOptions(false);
   };
 
   const handleSaveSettings = async () => {
-    await updateLedgerProfileSettings(localProfile.id, { millName, millDescription: millDesc });
-    setLocalProfile({ ...localProfile, millName, millDescription: millDesc });
+    await updateLedgerProfileSettings(profile.id, { millName, millDescription: millDesc });
+    useLedgerStore.getState().updateProfileInStore(profile.entityType, profile.entityId, {
+      ...profile,
+      millName,
+      millDescription: millDesc,
+    } as any);
     setShowSettings(false);
   };
 
@@ -234,15 +237,26 @@ export function LedgerProfileDetail({ profile }: Props) {
     ? Math.max(...entries.map((e) => e.vchNo)) + 1
     : 1;
 
+  const isStoreLoading = activeProfileEntriesFor !== profile.id;
+
+  if (loading || isStoreLoading) {
+    return (
+      <div className="p-8 flex items-center justify-center text-slate-500 gap-3">
+        <div className="w-5 h-5 border-2 border-slate-300 border-t-indigo-600 rounded-full animate-spin" />
+        Loading ledger...
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto p-8 space-y-8">
       {/* Header */}
       <div className="flex items-center justify-between bg-gradient-to-r from-slate-50 to-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{localProfile.entityName}</h2>
+          <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{profile.entityName}</h2>
           <p className="text-sm font-medium text-slate-500 capitalize mt-1 flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            {localProfile.entityType} Ledger Account
+            {profile.entityType} Ledger Account
           </p>
         </div>
         <div className="flex gap-3">

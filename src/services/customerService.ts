@@ -1,6 +1,7 @@
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc, serverTimestamp, query, orderBy, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Customer } from "@/types";
+import { syncLedgerProfileName } from "@/services/ledgerProfileService";
 
 const CUSTOMERS_COLLECTION = "customers";
 
@@ -55,5 +56,12 @@ export const customerService = {
       ...data,
       updatedAt: serverTimestamp(),
     });
+    if (typeof data.name === "string" && data.name.trim()) {
+      try {
+        await syncLedgerProfileName("customer", customerId, data.name.trim());
+      } catch (err) {
+        console.error("[ledger] failed to sync profile name", err);
+      }
+    }
   }
 };

@@ -1,6 +1,7 @@
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc, serverTimestamp, query, orderBy, deleteDoc, writeBatch, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Supplier } from "@/types";
+import { syncLedgerProfileName } from "@/services/ledgerProfileService";
 
 const SUPPLIERS_COLLECTION = "suppliers";
 
@@ -55,6 +56,49 @@ export const supplierService = {
       ...data,
       updatedAt: serverTimestamp(),
     });
+    if (typeof data.name === "string" && data.name.trim()) {
+      try {
+        await syncLedgerProfileName("supplier", supplierId, data.name.trim());
+        await this.cascadeSupplierName(supplierId, data.name.trim());
+      } catch (err) {
+        console.error("[ledger] failed to sync profile name", err);
+      }
+    }
+  },
+
+  async cascadeSupplierName(supplierId: string, newName: string): Promise<void> {
+    const CHUNK_SIZE = 400;
+    
+    const collectionsToUpdate = [
+      { col: "deals", field: "supplierName" },
+      { col: "inventory", field: "supplierName" },
+      { col: "supplierLedgerEntries", field: "supplierName" },
+    ];
+
+    for (const { col, field } of collectionsToUpdate) {
+      const q = query(collection(db, col), where("supplierId", "==", supplierId));
+      const snap = await getDocs(q);
+      
+      const batches: any[] = [];
+      let currentBatch = writeBatch(db);
+      let opCount = 0;
+
+      for (const d of snap.docs) {
+        currentBatch.update(d.ref, { [field]: newName, updatedAt: serverTimestamp() });
+        opCount++;
+        
+        if (opCount === CHUNK_SIZE) {
+          batches.push(currentBatch.commit());
+          currentBatch = writeBatch(db);
+          opCount = 0;
+        }
+      }
+      if (opCount > 0) {
+        batches.push(currentBatch.commit());
+      }
+      
+      await Promise.all(batches);
+    }
   },
 
   async deleteSupplier(supplierId: string): Promise<void> {

@@ -127,12 +127,12 @@ export function SupplierBagSelector({ filterRiceTypeId, targetOrderAmountKg, onA
         if (!deal) continue;
 
         const currentTotalWeight = next.reduce((sum, a) => sum + a.weightKg, 0);
-        let remainingNeededKg = targetOrderAmountKg - currentTotalWeight;
+        const remainingNeededKg = targetOrderAmountKg - currentTotalWeight;
         if (remainingNeededKg <= 0) continue; 
 
         const bagWeight = BAG_WEIGHT_KG[div.bagSize as BagSize];
         
-        let maxBagsWeCanAdd = Math.floor(remainingNeededKg / bagWeight);
+        const maxBagsWeCanAdd = Math.floor(remainingNeededKg / bagWeight);
 
         const actualQuantityToAdd = Math.min(quantity, maxBagsWeCanAdd);
         if (actualQuantityToAdd <= 0) continue;

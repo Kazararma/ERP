@@ -860,7 +860,7 @@ export const useBalanceSheetStore = create<BalanceSheetState>()(
 
   resetToDefault: () => {
     set((state) => {
-      let newGroups = state.groups.map(g => {
+      const newGroups = state.groups.map(g => {
         const defaultG = DEFAULT_GROUPS.find(dg => dg.key === g.key);
         
         // Retain only system computed items, and reset their amount
@@ -911,7 +911,7 @@ export const useBalanceSheetStore = create<BalanceSheetState>()(
       const newGroups = state.groups.map(g => {
         const defaultG = DEFAULT_GROUPS.find(dg => dg.key === g.key);
         
-        let newItems = g.items.map(i => {
+        const newItems = g.items.map(i => {
           if (!i.isSystemComputed) return i;
           return {
             ...i,
@@ -984,7 +984,7 @@ export const useBalanceSheetStore = create<BalanceSheetState>()(
   name: "balance-sheet-storage",
   version: 2,
   migrate: (persistedState: any, version: number) => {
-    let state = persistedState;
+    const state = persistedState;
     if (version === 0) {
       // Migrate to version 1: Replace old GST Payable with new Output/Input GST fields
       if (state && state.groups) {

@@ -109,7 +109,7 @@ service cloud.firestore {
     match /ledgerProfiles/{profileId} {
       allow read: if isSignedIn() && isActive();
       allow create, update: if isSignedIn() && isAdmin();
-      allow delete: if false; // Profiles are never deleted
+      allow delete: if isSignedIn() && isAdmin();
 
       match /entries/{entryId} {
         allow read: if isSignedIn() && isActive();

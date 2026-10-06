@@ -1,39 +1,62 @@
-import { useState, useEffect, useMemo } from "react";
-import { Customer } from "@/types";
-import { customerService } from "@/services/customerService";
+import { useState, useMemo, useEffect } from "react";
 import { LedgerProfileDetail } from "../../shared/LedgerProfileDetail";
-import { getLedgerProfilesByType } from "@/services/ledgerProfileService";
-import { LedgerProfile } from "@/types/ledger-profile";
+import { DeleteLedgerProfilePanel } from "../../shared/DeleteLedgerProfilePanel";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
-import { useLedgerStore } from "@/stores/useLedgerStore";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
 
+import { useLedgerProfileRows } from "@/hooks/useLedgerProfileRows";
+import type { LedgerProfileRow } from "@/components/ledger/shared/ledgerProfileRows";
+import { LedgerOverviewPdfButton } from "@/components/ledger/shared/LedgerOverviewPdfButton";
+import { useLedgerStore } from "@/stores/useLedgerStore";
+
 export function CustomerProfilesTab() {
-  const { customers, customerProfiles: profiles, isLoadingCustomers, fetchCustomersData } = useLedgerStore();
-  const [selectedProfile, setSelectedProfile] = useState<LedgerProfile | null>(null);
+  const [selectedRow, setSelectedRow] = useState<LedgerProfileRow | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showDeletePanel, setShowDeletePanel] = useState(false);
+  const fetchCustomersData = useLedgerStore((s) => s.fetchCustomersData);
 
   useEffect(() => {
     fetchCustomersData();
   }, [fetchCustomersData]);
 
-  const [searchQuery, setSearchQuery] = useState("");
+  const rows = useLedgerProfileRows("customer");
 
-  const filteredCustomers = useMemo(() => {
-    if (!searchQuery.trim()) return customers;
+  const filteredRows = useMemo(() => {
+    if (!searchQuery.trim()) return rows;
     const q = searchQuery.trim().toLowerCase();
-    return customers.filter((c) => c.name.toLowerCase().includes(q));
-  }, [customers, searchQuery]);
+    return rows.filter((r) => r.displayName.toLowerCase().includes(q));
+  }, [rows, searchQuery]);
 
-  if (selectedProfile) {
+  if (selectedRow) {
     return (
       <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border mt-4">
-        <button onClick={() => setSelectedProfile(null)} className="mb-4 text-blue-600 underline px-6 pt-4 text-left w-fit hover:text-blue-800">
-          &larr; Back to Customers
-        </button>
-        <div className="flex-1 overflow-y-auto">
-          <LedgerProfileDetail key={selectedProfile.id} profile={selectedProfile} />
+        <div className="flex items-center justify-between px-6 pt-4 mb-4">
+          <button
+            onClick={() => { setSelectedRow(null); setShowDeletePanel(false); }}
+            className="text-blue-600 underline text-left w-fit hover:text-blue-800"
+          >
+            &larr; Back to Customers
+          </button>
+          <button 
+            onClick={() => setShowDeletePanel(!showDeletePanel)}
+            className="text-sm text-red-600 hover:text-red-800 font-semibold"
+          >
+            {showDeletePanel ? "Hide Delete Options" : "Delete Profile"}
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto pb-6">
+          <LedgerProfileDetail key={selectedRow.profileId} profile={selectedRow.profile} />
+          {showDeletePanel && (
+            <div className="px-6 mt-4">
+              <DeleteLedgerProfilePanel 
+                profile={selectedRow.profile} 
+                allProfiles={rows.map(r => r.profile)}
+                onDeleted={() => { setSelectedRow(null); setShowDeletePanel(false); }}
+              />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -41,7 +64,10 @@ export function CustomerProfilesTab() {
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm border mt-4">
-      <h2 className="text-xl font-bold mb-6 text-slate-800">Customer Ledger Profiles</h2>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h2 className="text-xl font-bold text-slate-800">Customer Ledger Profiles</h2>
+        <LedgerOverviewPdfButton entityType="customer" rows={rows} />
+      </div>
       
       <div className="relative max-w-sm mb-4">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -62,25 +88,20 @@ export function CustomerProfilesTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredCustomers.map(c => {
-              const profile = profiles[c.customerId];
-              const closing = profile ? Math.abs(profile.closingBalance) : 0;
-              const isCredit = profile ? profile.closingBalance < 0 : false;
+            {filteredRows.map((r) => {
+              const isCredit = r.balance < 0;
+              const absVal = Math.abs(r.balance);
               return (
-                <tr 
-                  key={c.customerId} 
+                <tr
+                  key={r.profileId}
                   className="hover:bg-slate-50 cursor-pointer transition-colors"
-                  onClick={() => profile && setSelectedProfile(profile)}
+                  onClick={() => setSelectedRow(r)}
                 >
-                  <td className="py-2.5 px-4 font-medium text-slate-800">{c.name}</td>
+                  <td className="py-2.5 px-4 font-medium text-slate-800">{r.displayName}</td>
                   <td className="py-2.5 px-4 text-right">
-                    {profile ? (
-                      <span className={`font-semibold ${isCredit ? "text-emerald-600" : "text-rose-600"}`}>
-                        {isCredit ? "Cr " : "Dr "} {formatCurrency(closing)}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400 italic">Loading...</span>
-                    )}
+                    <span className={`font-semibold ${isCredit ? "text-emerald-600" : "text-rose-600"}`}>
+                      {isCredit ? "Cr " : "Dr "} {formatCurrency(absVal)}
+                    </span>
                   </td>
                 </tr>
               );

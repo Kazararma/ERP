@@ -1,36 +1,43 @@
-import { useState, useEffect, useMemo } from "react";
-import { MiscellaneousProfile } from "@/types/miscellaneous";
+import { useState, useMemo, useEffect } from "react";
 import { LedgerProfileDetail } from "../../shared/LedgerProfileDetail";
-import { LedgerProfile } from "@/types/ledger-profile";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { formatCurrency } from "@/lib/utils";
-import { useLedgerStore } from "@/stores/useLedgerStore";
 import { Input } from "@/components/ui/input";
 import { Search } from "lucide-react";
 
+import { useLedgerProfileRows } from "@/hooks/useLedgerProfileRows";
+import type { LedgerProfileRow } from "@/components/ledger/shared/ledgerProfileRows";
+import { LedgerOverviewPdfButton } from "@/components/ledger/shared/LedgerOverviewPdfButton";
+import { useLedgerStore } from "@/stores/useLedgerStore";
+
 export function MiscellaneousProfilesTab() {
-  const { miscellaneous, miscellaneousProfiles: profiles, fetchMiscellaneousData } = useLedgerStore();
-  const [selectedProfile, setSelectedProfile] = useState<LedgerProfile | null>(null);
+  const [selectedRow, setSelectedRow] = useState<LedgerProfileRow | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const fetchMiscellaneousData = useLedgerStore((s) => s.fetchMiscellaneousData);
 
   useEffect(() => {
     fetchMiscellaneousData();
   }, [fetchMiscellaneousData]);
 
-  const [searchQuery, setSearchQuery] = useState("");
+  const rows = useLedgerProfileRows("miscellaneous");
 
-  const filteredMiscellaneous = useMemo(() => {
-    if (!searchQuery.trim()) return miscellaneous;
+  const filteredRows = useMemo(() => {
+    if (!searchQuery.trim()) return rows;
     const q = searchQuery.trim().toLowerCase();
-    return miscellaneous.filter((m) => m.name.toLowerCase().includes(q));
-  }, [miscellaneous, searchQuery]);
+    return rows.filter((r) => r.displayName.toLowerCase().includes(q));
+  }, [rows, searchQuery]);
 
-  if (selectedProfile) {
+  if (selectedRow) {
     return (
       <div className="flex flex-col h-full bg-white rounded-xl shadow-sm border mt-4">
-        <button onClick={() => setSelectedProfile(null)} className="mb-4 text-blue-600 underline px-6 pt-4 text-left w-fit hover:text-blue-800">
+        <button
+          onClick={() => setSelectedRow(null)}
+          className="mb-4 text-blue-600 underline px-6 pt-4 text-left w-fit hover:text-blue-800"
+        >
           &larr; Back to Miscellaneous Profiles
         </button>
         <div className="flex-1 overflow-y-auto">
-          <LedgerProfileDetail key={selectedProfile.id} profile={selectedProfile} />
+          <LedgerProfileDetail key={selectedRow.profileId} profile={selectedRow.profile} />
         </div>
       </div>
     );
@@ -38,7 +45,10 @@ export function MiscellaneousProfilesTab() {
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm border mt-4">
-      <h2 className="text-xl font-bold mb-6 text-slate-800">Miscellaneous Ledger Profiles</h2>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h2 className="text-xl font-bold text-slate-800">Miscellaneous Ledger Profiles</h2>
+        <LedgerOverviewPdfButton entityType="miscellaneous" rows={rows} />
+      </div>
       
       <div className="relative max-w-sm mb-4">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -59,25 +69,20 @@ export function MiscellaneousProfilesTab() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {filteredMiscellaneous.map(m => {
-              const profile = profiles[m.miscId];
-              const closing = profile ? Math.abs(profile.closingBalance) : 0;
-              const isCredit = profile ? profile.closingBalance < 0 : false;
+            {filteredRows.map((r) => {
+              const isCredit = r.balance < 0;
+              const absVal = Math.abs(r.balance);
               return (
-                <tr 
-                  key={m.miscId} 
+                <tr
+                  key={r.profileId}
                   className="hover:bg-slate-50 cursor-pointer transition-colors"
-                  onClick={() => profile && setSelectedProfile(profile)}
+                  onClick={() => setSelectedRow(r)}
                 >
-                  <td className="py-2.5 px-4 font-medium text-slate-800">{m.name}</td>
+                  <td className="py-2.5 px-4 font-medium text-slate-800">{r.displayName}</td>
                   <td className="py-2.5 px-4 text-right">
-                    {profile ? (
-                      <span className={`font-semibold ${isCredit ? "text-emerald-600" : "text-rose-600"}`}>
-                        {isCredit ? "Cr " : "Dr "} {formatCurrency(closing)}
-                      </span>
-                    ) : (
-                      <span className="text-slate-400 italic">Loading...</span>
-                    )}
+                    <span className={`font-semibold ${isCredit ? "text-emerald-600" : "text-rose-600"}`}>
+                      {isCredit ? "Cr " : "Dr "} {formatCurrency(absVal)}
+                    </span>
                   </td>
                 </tr>
               );

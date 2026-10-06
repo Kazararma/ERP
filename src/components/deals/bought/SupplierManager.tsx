@@ -14,6 +14,7 @@ export default function SupplierManager() {
   const [loading, setLoading] = useState(true);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<Supplier>();
 
@@ -46,6 +47,7 @@ export default function SupplierManager() {
   };
 
   const onSubmit = async (data: any) => {
+    setSaving(true);
     try {
       if (editingSupplier) {
         await supplierService.updateSupplier(editingSupplier.supplierId, data);
@@ -60,6 +62,8 @@ export default function SupplierManager() {
     } catch (e) {
       console.error("Failed to save supplier", e);
       toast.error("Failed to save supplier.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -136,11 +140,12 @@ export default function SupplierManager() {
           </div>
 
           <div className="flex gap-3 pt-4 border-t border-slate-100">
-            <button type="button" onClick={() => setIsFormOpen(false)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors">
+            <button type="button" disabled={saving} onClick={() => setIsFormOpen(false)} className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-colors disabled:opacity-50">
               Cancel
             </button>
-            <button type="submit" className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md shadow-indigo-500/25 transition-all">
-              {editingSupplier ? "Save Changes" : "Add Supplier"}
+            <button type="submit" disabled={saving} className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md shadow-indigo-500/25 transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+              {saving && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>}
+              {saving ? "Saving..." : (editingSupplier ? "Save Changes" : "Add Supplier")}
             </button>
           </div>
         </form>

@@ -104,9 +104,9 @@ export function SupplierLedgerDetail({ supplierId, supplierName, dateFilter }: {
                 
                 let label: string = entry.eventType;
                 let details = "";
-                let amount = (entry.amountKg || entry.totalWeightKg || 0).toLocaleString() + " kg";
+                const amount = (entry.amountKg || entry.totalWeightKg || 0).toLocaleString() + " kg";
                 let value = "";
-                let bgColor = "bg-blue-50/50";
+                const bgColor = "bg-blue-50/50";
 
                 label = "Purchase Created";
                 details = `₹${entry.pricePerKg}/kg`;

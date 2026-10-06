@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { MiscellaneousProfile } from "@/types/miscellaneous";
+import { syncLedgerProfileName } from "@/services/ledgerProfileService";
 
 const COLLECTION = "miscellaneous";
 
@@ -80,5 +81,12 @@ export const miscellaneousService = {
       ...patch,
       updatedAt: serverTimestamp(),
     });
+    if (typeof patch.name === "string" && patch.name.trim()) {
+      try {
+        await syncLedgerProfileName("miscellaneous", miscId, patch.name.trim());
+      } catch (err) {
+        console.error("[ledger] failed to sync profile name", err);
+      }
+    }
   },
 };
